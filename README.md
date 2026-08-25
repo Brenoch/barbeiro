@@ -39,4 +39,3 @@ Os arquivos prontos para envio são gerados em `hostgator-dist/`. Essa pasta nã
 
 Este é um MVP sem banco de dados. Agendamentos e configurações ficam disponíveis
 apenas no navegador e no dispositivo em que foram criados.
-
