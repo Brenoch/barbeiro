@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -14,7 +15,7 @@
 
 * { box-sizing: border-box; }
 html { background: var(--paper); }
-body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Manrope", Arial, sans-serif; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 
@@ -42,7 +43,7 @@ button { cursor: pointer; }
 .hero-copy { padding: 48px 20px 28px; position: relative; z-index: 2; }
 .hero-location { margin: 0 0 20px; display: flex; align-items: center; gap: 9px; color: var(--gold); font-size: 8px; font-weight: 900; letter-spacing: .2em; }
 .hero-location i { width: 24px; height: 1px; background: var(--gold); }
-.hero-copy h1 { margin: 0; font-size: clamp(54px, 17vw, 76px); line-height: .81; letter-spacing: -.065em; text-transform: uppercase; }
+.hero-copy h1 { margin: 0; font-family: "Barlow Condensed", sans-serif; font-size: clamp(54px, 17vw, 76px); line-height: .81; letter-spacing: -.035em; text-transform: uppercase; }
 .hero-copy h1 span { display: block; }
 .hero-copy h1 span:nth-child(2) { color: var(--gold); }
 .hero-description { max-width: 310px; margin: 28px 0 22px; color: #97938b; font-size: 12px; line-height: 1.65; }
@@ -57,7 +58,7 @@ button { cursor: pointer; }
 .section-block, .lookbook-section, .map-section, .dashboard-page { padding: 26px 16px; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; margin: 0 0 16px; }
 .section-heading small, .page-intro small { font-size: 8px; font-weight: 900; letter-spacing: .19em; color: var(--muted); }
-.section-heading h2 { margin: 3px 0 0; font-size: 24px; letter-spacing: -.035em; }
+.section-heading h2 { margin: 0; font-family: "Barlow Condensed", sans-serif; font-size: 29px; letter-spacing: -.025em; }
 .section-heading button { border: 0; background: none; font-size: 10px; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
 .service-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .service-grid > button { min-height: 154px; padding: 13px; text-align: left; background: var(--cream); color: var(--ink); border: 0; border-top: 3px solid var(--ink); position: relative; }
@@ -67,25 +68,41 @@ button { cursor: pointer; }
 .service-grid p { margin: 0; font-size: 10px; color: var(--muted); }
 .service-grid b { position: absolute; bottom: 13px; left: 13px; color: var(--gold); font-size: 12px; }
 .service-grid em { position: absolute; bottom: 13px; right: 12px; font-style: normal; font-size: 9px; color: var(--muted); }
-.lookbook-section { --look-progress: 0; height: calc(100svh + 165vw); padding-top: 7px; position: relative; }
+.lookbook-section { --look-progress: 0; height: calc(100svh + 410vw); padding-top: 7px; position: relative; }
 .lookbook-pin { height: calc(100svh - 76px); min-height: 620px; padding: 20px 0 88px; position: sticky; top: 76px; display: flex; flex-direction: column; overflow: hidden; }
 .lookbook-pin .section-heading { flex: 0 0 auto; }
 .lookbook-viewport { flex: 1; min-height: 0; overflow: hidden; }
-.lookbook-track { height: 100%; padding-right: 16px; display: flex; gap: 10px; width: max-content; will-change: transform; }
-.look-card { width: 78vw; max-width: 430px; height: 100%; min-height: 390px; padding: 0; border: 0; background: #171614; color: white; position: relative; overflow: hidden; flex: 0 0 auto; text-align: left; }
+.lookbook-track { height: 100%; padding-right: 16px; display: flex; gap: 10px; width: max-content; transform: translate3d(var(--look-x, 0px), 0, 0); will-change: transform; contain: layout paint; }
+.look-card { width: 78vw; max-width: 430px; height: 100%; min-height: 390px; padding: 0; border: 0; background: #171614; color: white; position: relative; overflow: hidden; flex: 0 0 auto; text-align: left; contain: layout paint; }
 .look-card::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(10,10,9,.97) 0, rgba(10,10,9,.08) 63%); pointer-events: none; }
-.look-card > img { width: 100%; height: 100%; object-fit: cover; display: block; filter: saturate(.8) contrast(1.04); transition: transform .45s ease, filter .45s ease; }
-.look-card:hover > img { transform: scale(1.025); filter: saturate(1) contrast(1.02); }
-.look-card > span { position: absolute; z-index: 2; right: 12px; top: 11px; color: white; font-size: 8px; letter-spacing: .16em; }
+.look-card > img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .45s ease; }
+.look-card:hover > img { transform: scale(1.025); }
 .look-card > div { position: absolute; z-index: 2; left: 15px; right: 15px; bottom: 16px; }
-.look-card small { color: var(--gold); font-size: 7px; letter-spacing: .18em; }
-.look-card h3 { margin: 4px 0 3px; font-size: 24px; text-transform: uppercase; }
+.look-card h3 { margin: 0 0 4px; font-size: 24px; text-transform: uppercase; }
 .look-card p { margin: 0 0 12px; color: #bbb6ac; font-size: 9px; }
 .look-card b { color: var(--gold); font-size: 8px; letter-spacing: .08em; }
+.look-card-meta { display: flex; gap: 20px; margin: 0 0 14px; }
+.look-card-meta div { position: static; display: grid; gap: 3px; }
+.look-card-meta dt { color: #a59e92; font-size: 7px; font-weight: 800; letter-spacing: .14em; }
+.look-card-meta dd { margin: 0; color: white; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.look-card--detail { background: linear-gradient(135deg, #302b24, #141310 68%); }
+.look-card--detail::before { content: ""; position: absolute; width: 180px; height: 180px; right: -58px; top: -68px; border: 1px solid rgba(206,166,88,.46); border-radius: 50%; }
 .lookbook-progress { flex: 0 0 auto; height: 28px; margin-top: 10px; border-top: 1px solid var(--line); position: relative; display: flex; align-items: end; justify-content: space-between; }
 .lookbook-progress::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: #c2bbaf; }
 .lookbook-progress i { position: absolute; z-index: 1; left: 0; right: 0; top: -1px; height: 2px; background: var(--gold); transform: scaleX(var(--look-progress)); transform-origin: left center; }
 .lookbook-progress span { color: var(--muted); font-size: 7px; font-weight: 900; letter-spacing: .12em; }
+
+@keyframes lookbook-mobile-shift { to { transform: translate3d(calc(-368vw - 98px), 0, 0); } }
+@keyframes lookbook-mobile-progress { to { transform: scaleX(1); } }
+
+@media (max-width: 899px) {
+  @supports (animation-timeline: view()) {
+    .lookbook-section { view-timeline: --lookbook-mobile block; }
+    .lookbook-track { animation: lookbook-mobile-shift linear both; animation-timeline: --lookbook-mobile; animation-range: entry 0% exit 100%; }
+    .lookbook-progress i { animation: lookbook-mobile-progress linear both; animation-timeline: --lookbook-mobile; animation-range: entry 0% exit 100%; }
+  }
+}
+
 .upcoming-card { margin: 16px 16px 0; padding: 16px; background: white; border: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; box-shadow: 0 8px 30px rgba(51,45,33,.06); }
 .upcoming-card div { display: grid; gap: 3px; }
 .upcoming-card small { color: var(--gold); font-size: 8px; letter-spacing: .16em; font-weight: 900; }
@@ -242,7 +259,7 @@ button { cursor: pointer; }
 .block-row span { white-space: nowrap; font-size: 9px; color: var(--muted); }
 .block-row button { border: 1px solid var(--line); background: transparent; padding: 6px 8px; font-size: 9px; }
 .timeline { position: relative; display: grid; gap: 9px; }
-.timeline-item { display: grid; grid-template-columns: 56px 1fr; min-height: 130px; background: white; border-left: 4px solid var(--gold); box-shadow: 0 4px 20px rgba(40,35,25,.05); }
+.timeline-item { display: grid; grid-template-columns: 56px 1fr; min-height: 130px; background: white; border-top: 2px solid var(--gold); box-shadow: 0 4px 20px rgba(40,35,25,.05); }
 .timeline-item.status-completed { border-color: #557b5e; }.timeline-item.status-cancelled,.timeline-item.status-noshow { opacity: .55; border-color: var(--danger); }
 .timeline-item > time { padding: 18px 8px; font-size: 12px; font-weight: 900; border-right: 1px solid #e2ddd3; }
 .timeline-item > div { padding: 13px; }
@@ -267,11 +284,11 @@ button { cursor: pointer; }
 
 .profile-card { padding: 25px; background: var(--ink); color: white; text-align: center; margin-bottom: 28px; }.large-avatar { width: 78px; height: 78px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 15px; background: var(--gold); color: var(--ink); font-size: 20px; font-weight: 900; }.profile-card small { font-size: 8px; letter-spacing: .15em; color: var(--gold); }.profile-card h2 { margin: 5px 0; font-size: 24px; }.profile-card p { margin: 0; color: #aaa69b; font-size: 10px; }
 .role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 30px; }.role-grid button { min-height: 80px; border: 1px solid var(--line); background: white; display: grid; place-items: center; align-content: center; gap: 7px; }.role-grid button.active { border-color: var(--gold); background: var(--gold-soft); }.role-grid span { font-size: 20px; }.role-grid b { font-size: 8px; }
-.backup-actions { display: grid; gap: 7px; }.backup-actions button, .backup-actions label { min-height: 45px; display: flex; align-items: center; justify-content: space-between; padding: 0 13px; background: var(--ink); color: white; border: 0; font-size: 9px; font-weight: 900; cursor: pointer; }.backup-actions label input { display: none; }.backup-actions .danger { background: transparent; color: var(--danger); border: 1px solid #d3c1bc; }.local-warning { margin-top: 15px; padding: 14px; border-left: 3px solid var(--gold); background: #e6dfd3; }.local-warning b { font-size: 10px; }.local-warning p { margin: 4px 0 0; font-size: 9px; color: var(--muted); line-height: 1.5; }
+.backup-actions { display: grid; gap: 7px; }.backup-actions button, .backup-actions label { min-height: 45px; display: flex; align-items: center; justify-content: space-between; padding: 0 13px; background: var(--ink); color: white; border: 0; font-size: 9px; font-weight: 900; cursor: pointer; }.backup-actions label input { display: none; }.backup-actions .danger { background: transparent; color: var(--danger); border: 1px solid #d3c1bc; }.local-warning { margin-top: 15px; padding: 14px; border-top: 2px solid var(--gold); background: #e6dfd3; }.local-warning b { font-size: 10px; }.local-warning p { margin: 4px 0 0; font-size: 9px; color: var(--muted); line-height: 1.5; }
 
 .bottom-nav { position: fixed; z-index: 30; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 1180px); height: 72px; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; background: #11110f; border-top: 1px solid #3a3832; padding: 4px 6px 7px; }.bottom-nav button { border: 0; background: none; color: #807d75; display: grid; place-items: center; gap: 3px; font-size: 8px; }.bottom-nav button span { font-size: 19px; line-height: 1; }.bottom-nav .active { color: var(--gold); }.bottom-nav .nav-plus { width: 48px; height: 48px; justify-self: center; border-radius: 50%; background: var(--gold); color: var(--ink); font-size: 27px; box-shadow: 0 0 0 5px #11110f; transform: translateY(-11px); display: block; }
 
-.sheet-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: end; justify-content: center; background: rgba(0,0,0,.68); backdrop-filter: blur(3px); }.booking-sheet { width: 100%; max-width: 620px; max-height: 92vh; overflow-y: auto; background: var(--paper); border-radius: 20px 20px 0 0; box-shadow: 0 -30px 80px rgba(0,0,0,.35); }.booking-sheet > header { position: sticky; top: 0; z-index: 3; min-height: 70px; display: flex; justify-content: space-between; align-items: center; padding: 15px 17px; background: var(--ink); color: white; }.booking-sheet header div { display: grid; gap: 4px; }.booking-sheet header small { color: var(--gold); font-size: 8px; letter-spacing: .15em; }.booking-sheet header b { font-size: 12px; }.booking-sheet header button { border: 0; background: transparent; color: white; font-size: 27px; }.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 9px 17px 0; }.steps i { height: 3px; background: #cec7ba; }.steps i.done { background: var(--gold); }.sheet-content { padding: 20px 17px 30px; }.sheet-content h2 { margin: 0 0 17px; font-size: 29px; letter-spacing: -.04em; }.back-link { border: 0; background: none; padding: 0; margin-bottom: 10px; color: var(--muted); font-size: 9px; }.choice-list { display: grid; gap: 7px; }.choice-list > button { min-height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 12px; text-align: left; background: white; border: 1px solid var(--line); }.choice-list button > div { display: grid; gap: 5px; }.choice-list button b { font-size: 13px; }.choice-list button span { font-size: 9px; color: var(--muted); }.choice-list button strong { color: var(--gold); font-size: 12px; }.barber-choices > button { justify-content: flex-start; gap: 12px; }.barber-choices button > i { width: 45px; height: 45px; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: var(--gold); font-style: normal; font-weight: 900; }.barber-choices button > div { flex: 1; }.booking-dates { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }.booking-dates button { min-height: 70px; border: 1px solid var(--line); background: white; display: grid; place-items: center; align-content: center; gap: 2px; }.booking-dates button.active { background: var(--gold); }.booking-dates span, .booking-dates small { font-size: 7px; text-transform: uppercase; color: var(--muted); }.booking-dates b { font-size: 17px; }.booking-summary { margin: -10px 0 17px; color: var(--muted); font-size: 10px; }.time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }.time-grid button { padding: 10px 4px; border: 1px solid var(--line); background: white; font-size: 10px; }.time-grid button.active { background: var(--gold); border-color: var(--gold); font-weight: 900; }.confirm-button { width: 100%; margin-top: 20px; padding: 15px; display: flex; justify-content: space-between; border: 0; background: var(--ink); color: white; font-size: 9px; font-weight: 900; }.confirm-button:disabled { opacity: .35; cursor: not-allowed; }.confirm-button span { color: var(--gold); font-size: 18px; }.toast { position: fixed; z-index: 100; left: 50%; bottom: 88px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 30px); background: var(--ink); color: white; border-left: 4px solid var(--gold); padding: 12px 16px; font-size: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: end; justify-content: center; background: rgba(0,0,0,.68); backdrop-filter: blur(3px); }.booking-sheet { width: 100%; max-width: 620px; max-height: 92vh; overflow-y: auto; background: var(--paper); border-radius: 20px 20px 0 0; box-shadow: 0 -30px 80px rgba(0,0,0,.35); }.booking-sheet > header { position: sticky; top: 0; z-index: 3; min-height: 70px; display: flex; justify-content: space-between; align-items: center; padding: 15px 17px; background: var(--ink); color: white; }.booking-sheet header div { display: grid; gap: 4px; }.booking-sheet header small { color: var(--gold); font-size: 8px; letter-spacing: .15em; }.booking-sheet header b { font-size: 12px; }.booking-sheet header button { border: 0; background: transparent; color: white; font-size: 27px; }.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 9px 17px 0; }.steps i { height: 3px; background: #cec7ba; }.steps i.done { background: var(--gold); }.sheet-content { padding: 20px 17px 30px; }.sheet-content h2 { margin: 0 0 17px; font-size: 29px; letter-spacing: -.04em; }.back-link { border: 0; background: none; padding: 0; margin-bottom: 10px; color: var(--muted); font-size: 9px; }.choice-list { display: grid; gap: 7px; }.choice-list > button { min-height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 12px; text-align: left; background: white; border: 1px solid var(--line); }.choice-list button > div { display: grid; gap: 5px; }.choice-list button b { font-size: 13px; }.choice-list button span { font-size: 9px; color: var(--muted); }.choice-list button strong { color: var(--gold); font-size: 12px; }.barber-choices > button { justify-content: flex-start; gap: 12px; }.barber-choices button > i { width: 45px; height: 45px; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: var(--gold); font-style: normal; font-weight: 900; }.barber-choices button > div { flex: 1; }.booking-dates { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }.booking-dates button { min-height: 70px; border: 1px solid var(--line); background: white; display: grid; place-items: center; align-content: center; gap: 2px; }.booking-dates button.active { background: var(--gold); }.booking-dates span, .booking-dates small { font-size: 7px; text-transform: uppercase; color: var(--muted); }.booking-dates b { font-size: 17px; }.booking-summary { margin: -10px 0 17px; color: var(--muted); font-size: 10px; }.time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }.time-grid button { padding: 10px 4px; border: 1px solid var(--line); background: white; font-size: 10px; }.time-grid button.active { background: var(--gold); border-color: var(--gold); font-weight: 900; }.confirm-button { width: 100%; margin-top: 20px; padding: 15px; display: flex; justify-content: space-between; border: 0; background: var(--ink); color: white; font-size: 9px; font-weight: 900; }.confirm-button:disabled { opacity: .35; cursor: not-allowed; }.confirm-button span { color: var(--gold); font-size: 18px; }.toast { position: fixed; z-index: 100; left: 50%; bottom: 88px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 30px); background: var(--ink); color: white; border-top: 2px solid var(--gold); padding: 12px 16px; font-size: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
 
 @media (min-width: 560px) {
   .role-button span { display: block; }
@@ -283,6 +300,11 @@ button { cursor: pointer; }
   .role-popover { right: max(18px, calc((100vw - 1380px) / 2 + 18px)); }
   .admin-team-grid, .admin-quick-actions { grid-template-columns: repeat(2, 1fr); }
 }
+
+@media (min-width: 560px) and (max-width: 899px) {
+  @keyframes lookbook-mobile-shift { to { transform: translate3d(calc(-188vw - 74px), 0, 0); } }
+}
+
 
 @media (min-width: 900px) {
   .app-frame { min-height: 100vh; padding-bottom: 0; }
@@ -324,7 +346,7 @@ button { cursor: pointer; }
   .service-grid h3 { font-size: 23px; }
   .service-grid p { font-size: 11px; }
   .service-grid b { font-size: 13px; }
-  .lookbook-section { height: calc(100vh + 55vw); }
+  .lookbook-section { height: calc(100vh + 180vw); }
   .lookbook-pin { height: calc(100svh - 88px); top: 88px; }
   .lookbook-track { padding-right: 56px; gap: 16px; }
   .look-card { width: min(42vw, 470px); min-height: 500px; }
@@ -381,3 +403,26 @@ button { cursor: pointer; }
 }
 
 @media (prefers-reduced-motion: reduce) { .marquee-track { animation-play-state: paused; } }
+
+/* Refined icon and interaction system */
+.icon { width: 1em; height: 1em; display: block; flex: 0 0 auto; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+::selection { background: var(--gold); color: var(--ink); }
+* { scrollbar-color: var(--gold) var(--ink); }
+.primary-action .icon { width: 18px; height: 18px; }
+.footer-instagram b, .team-grid article > button, .admin-agenda-panel header button, .admin-team-panel header button, .back-link { display: inline-flex; align-items: center; gap: 6px; }
+.admin-overview-head h1, .page-intro h1 { font-family: "Barlow Condensed", sans-serif; letter-spacing: -.03em; }
+.admin-overview-head h1 { margin-top: 0; }
+.admin-head-actions button .icon, .admin-kpi > i .icon { width: 17px; height: 17px; }
+.admin-kpi > i { font-size: inherit; }
+.admin-quick-actions button > span { font-size: inherit; }
+.admin-quick-actions button > span .icon, .admin-quick-actions button > i .icon { width: 16px; height: 16px; }
+.role-grid span { width: 20px; height: 20px; display: grid; place-items: center; }
+.bottom-nav button span { width: 19px; height: 19px; display: grid; place-items: center; }
+.bottom-nav .nav-plus { display: grid; font-size: inherit; }
+.bottom-nav .nav-plus span { width: 24px; height: 24px; }
+.booking-sheet header button { padding: 6px; font-size: inherit; }
+.booking-sheet header button .icon { width: 22px; height: 22px; }
+.back-link .icon, .barber-choices button strong .icon, .confirm-button .icon { width: 16px; height: 16px; }
+.toast { display: inline-flex; align-items: center; gap: 7px; border-left: 0; }
+.toast .icon { color: var(--gold); width: 15px; height: 15px; }

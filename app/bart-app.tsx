@@ -5,6 +5,13 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 type Role = "client" | "barber" | "admin";
 type Screen = "home" | "agenda" | "team" | "management" | "profile";
 type Status = "confirmed" | "completed" | "cancelled" | "noshow";
+type IconName = "home" | "calendar" | "plus" | "scissors" | "user" | "grid" | "wallet" | "arrow-right" | "arrow-left" | "arrow-up-right" | "check" | "close" | "download" | "upload";
+
+const iconPaths: Record<IconName, React.ReactNode> = {
+  home: <><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M9 21v-6h6v6" /></>, calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>, plus: <path d="M12 5v14M5 12h14" />, scissors: <><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="m8.6 7.5 10.4 9M8.6 16.5 19 7.5" /></>, user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4 3.5-6 8-6s7.2 2 8 6" /></>, grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>, wallet: <><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H19a1 1 0 0 1 1 1v2H6.5A2.5 2.5 0 0 0 4 10.5v7A2.5 2.5 0 0 0 6.5 20H20v-3" /><path d="M20 10h-5a2 2 0 0 0 0 4h5z" /></>, "arrow-right": <path d="M5 12h14m-6-6 6 6-6 6" />, "arrow-left": <path d="M19 12H5m6 6-6-6 6-6" />, "arrow-up-right": <path d="M7 17 17 7m-7 0h7v7" />, check: <path d="m5 12 4.5 4.5L19 7" />, close: <path d="m6 6 12 12M18 6 6 18" />, download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />, upload: <path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14" />,
+};
+
+function Icon({ name, label }: { name: IconName; label?: string }) { return <svg className="icon" viewBox="0 0 24 24" aria-hidden={label ? undefined : true} aria-label={label} role={label ? "img" : undefined} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{iconPaths[name]}</svg>; }
 
 type Service = {
   id: string;
@@ -153,11 +160,11 @@ export default function BartApp() {
     return result;
   }, [booking, data.appointments, data.blocks, services]);
 
-  const navItems = role === "client"
-    ? [["home", "⌂", "Início"], ["agenda", "▦", "Agendamentos"], ["plus", "+", "Agendar"], ["team", "✂", "Equipe"], ["profile", "○", "Perfil"]]
+  const navItems: [string, IconName, string][] = role === "client"
+    ? [["home", "home", "Início"], ["agenda", "calendar", "Agendamentos"], ["plus", "plus", "Agendar"], ["team", "scissors", "Equipe"], ["profile", "user", "Perfil"]]
     : role === "barber"
-      ? [["home", "⌂", "Resumo"], ["agenda", "▦", "Agenda"], ["plus", "+", "Encaixe"], ["management", "$", "Ganhos"], ["profile", "○", "Perfil"]]
-      : [["home", "⌂", "Visão geral"], ["agenda", "▦", "Agenda"], ["plus", "+", "Agendar"], ["management", "≡", "Gestão"], ["profile", "○", "Perfil"]];
+      ? [["home", "home", "Resumo"], ["agenda", "calendar", "Agenda"], ["plus", "plus", "Encaixe"], ["management", "wallet", "Ganhos"], ["profile", "user", "Perfil"]]
+      : [["home", "grid", "Visão geral"], ["agenda", "calendar", "Agenda"], ["plus", "plus", "Agendar"], ["management", "grid", "Gestão"], ["profile", "user", "Perfil"]];
 
   function selectRole(nextRole: Role) {
     setRole(nextRole);
@@ -256,7 +263,7 @@ export default function BartApp() {
           <div className="role-popover">
             <small>VISUALIZAR COMO</small>
             {(["client", "barber", "admin"] as Role[]).map(item => (
-              <button key={item} className={role === item ? "selected" : ""} onClick={() => selectRole(item)}>{roleLabels[item]}<span>→</span></button>
+              <button key={item} className={role === item ? "selected" : ""} onClick={() => selectRole(item)}>{roleLabels[item]}<Icon name="arrow-right" /></button>
             ))}
           </div>
         )}
@@ -287,19 +294,19 @@ export default function BartApp() {
           confirm={confirmBooking}
         />
       )}
-      {toast && <div className="toast">✓ {toast}</div>}
+      {toast && <div className="toast"><Icon name="check" />{toast}</div>}
     </main>
   );
 }
 
-function Header({ role, items, screen, onNavigate, onOpen }: { role: Role; items: string[][]; screen: Screen; onNavigate: (target: string) => void; onOpen: () => void }) {
+function Header({ role, items, screen, onNavigate, onOpen }: { role: Role; items: [string, IconName, string][]; screen: Screen; onNavigate: (target: string) => void; onOpen: () => void }) {
   return (
     <header className="topbar">
       <div className="brand-lockup">
         <img src="/bart-logo.jpg" alt="Bart do Corte" />
         <div><span>BARBEARIA</span><strong>BART DO CORTE</strong><em>Ter–Sex 09–19h · Sáb 09–18h</em></div>
       </div>
-      <nav className="desktop-top-nav" aria-label="Navegação para desktop">{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "desktop-top-cta" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><span>{icon}</span><b>{label}</b></button>)}</nav>
+      <nav className="desktop-top-nav" aria-label="Navegação para desktop">{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "desktop-top-cta" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><Icon name={icon} /><b>{label}</b></button>)}</nav>
       <button className="role-button" onClick={onOpen}><span>{roleLabels[role]}</span><b>{role === "admin" ? "AD" : role === "barber" ? "AN" : "BC"}</b></button>
     </header>
   );
@@ -311,9 +318,12 @@ function Marquee() {
 }
 
 const haircutGallery = [
-  { image: "/corte-low-fade.webp", name: "Low fade", detail: "Transição limpa e topo texturizado" },
-  { image: "/corte-social.webp", name: "Social clássico", detail: "Elegância, risca lateral e acabamento" },
-  { image: "/corte-barba.webp", name: "Fade + barba", detail: "Degradê e contorno alinhados" },
+  { image: "/referencia-corte-barba.jpg", imagePosition: "center", name: "Corte & barba", detail: "Corte completo com acabamento da barba", price: 50, duration: "40 min" },
+  { image: "/referencia-corte-infantil.jpg", imagePosition: "center", name: "Corte infantil", detail: "Corte pensado para os pequenos", price: 35, duration: "30 min" },
+  { image: "/referencia-pigmentacao.jpg", imagePosition: "center", name: "Corte + pigmentação", detail: "Acabamento com pigmentação", price: 40, duration: "45 min" },
+  { image: "/referencia-nevou.jpg", imagePosition: "center", name: "Nevou - colorido", detail: "Descoloração e cor", price: 95, duration: "2 h" },
+  { image: null, imagePosition: "center", name: "Pezinho + sobrancelha + bigode", detail: "Acabamento preciso nos detalhes", price: 15, duration: "20 min" },
+  { image: "/referencia-reflexo.jpg", imagePosition: "center", name: "Reflexo", detail: "Mechas e iluminação", price: 80, duration: "1 h" },
 ];
 
 function ClientHome({ data, openBooking, setScreen }: { data: StoreData; openBooking: () => void; setScreen: (screen: Screen) => void }) {
@@ -326,7 +336,7 @@ function ClientHome({ data, openBooking, setScreen }: { data: StoreData; openBoo
         <p className="hero-location"><i /> CAMPO GRANDE · RIO DE JANEIRO</p>
         <h1><span>BART</span><span>DO CORTE</span></h1>
         <p className="hero-description">Seu horário, seu barbeiro e seu próximo visual em poucos toques.</p>
-        <button className="primary-action" onClick={openBooking}>AGENDAR PELO APP <span>→</span></button>
+        <button className="primary-action" onClick={openBooking}>AGENDAR PELO APP <Icon name="arrow-right" /></button>
       </div>
     </section>
     <Marquee />
@@ -377,7 +387,7 @@ function ClientHome({ data, openBooking, setScreen }: { data: StoreData; openBoo
         <nav className="footer-links" aria-label="Atalhos do rodapé">
           <a className="footer-instagram" href="https://www.instagram.com/barbearia_bartdocorte/" target="_blank" rel="noreferrer" aria-label="Instagram da Bart do Corte">
             <span>INSTAGRAM</span>
-            <b>@BARBEARIA_BARTDOCORTE ↗</b>
+            <b>@BARBEARIA_BARTDOCORTE <Icon name="arrow-up-right" /></b>
           </a>
         </nav>
       </div>
@@ -401,28 +411,61 @@ function LookbookSection({ openBooking }: { openBooking: () => void }) {
     if (!section || !viewport || !track) return;
 
     let frame = 0;
+    let sectionStart = 0;
+    let scrollDistance = 1;
+    let horizontalDistance = 0;
+    let stickyTop = 76;
+    let lastProgress = -1;
+    let scrollListening = false;
+
+    const usesNativeMobileTimeline = () => window.innerWidth < 900 && CSS.supports("animation-timeline: view()");
+
+    const measure = () => {
+      stickyTop = window.innerWidth >= 900 ? 88 : 76;
+      sectionStart = window.scrollY + section.getBoundingClientRect().top;
+      const stickyHeight = Math.max(1, window.innerHeight - stickyTop);
+      scrollDistance = Math.max(1, section.offsetHeight - stickyHeight);
+      horizontalDistance = Math.max(0, track.scrollWidth - viewport.clientWidth);
+    };
+
     const update = () => {
       frame = 0;
-      const stickyTop = window.innerWidth >= 900 ? 88 : 76;
-      const rect = section.getBoundingClientRect();
-      const stickyHeight = Math.max(1, window.innerHeight - stickyTop);
-      const scrollDistance = Math.max(1, section.offsetHeight - stickyHeight);
-      const progress = Math.min(1, Math.max(0, (stickyTop - rect.top) / scrollDistance));
-      const horizontalDistance = Math.max(0, track.scrollWidth - viewport.clientWidth);
-      track.style.transform = `translate3d(${-progress * horizontalDistance}px, 0, 0)`;
+      const progress = Math.min(1, Math.max(0, (window.scrollY + stickyTop - sectionStart) / scrollDistance));
+      if (progress === lastProgress) return;
+      lastProgress = progress;
+      section.style.setProperty("--look-x", `${-progress * horizontalDistance}px`);
       section.style.setProperty("--look-progress", String(progress));
     };
     const requestUpdate = () => {
       if (!frame) frame = window.requestAnimationFrame(update);
     };
-
-    update();
-    window.addEventListener("scroll", requestUpdate, { passive: true });
-    window.addEventListener("resize", requestUpdate);
-    return () => {
+    const startScrollSync = () => {
+      if (scrollListening) return;
+      scrollListening = true;
+      measure();
+      lastProgress = -1;
+      requestUpdate();
+      window.addEventListener("scroll", requestUpdate, { passive: true });
+    };
+    const stopScrollSync = () => {
+      if (!scrollListening) return;
+      scrollListening = false;
       window.removeEventListener("scroll", requestUpdate);
-      window.removeEventListener("resize", requestUpdate);
       if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      section.style.removeProperty("--look-x");
+      section.style.removeProperty("--look-progress");
+    };
+    const syncMotionMode = () => {
+      if (usesNativeMobileTimeline()) stopScrollSync();
+      else startScrollSync();
+    };
+
+    syncMotionMode();
+    window.addEventListener("resize", syncMotionMode);
+    return () => {
+      window.removeEventListener("resize", syncMotionMode);
+      stopScrollSync();
     };
   }, []);
 
@@ -430,10 +473,9 @@ function LookbookSection({ openBooking }: { openBooking: () => void }) {
     <div className="lookbook-pin">
       <SectionTitle overline="REFERÊNCIAS DE CORTE" title="Inspire seu visual" />
       <div className="lookbook-viewport" ref={viewportRef}>
-        <div className="lookbook-track" ref={trackRef}>{haircutGallery.map((style, index) => <button className="look-card" key={style.name} onClick={openBooking} aria-label={`Agendar corte inspirado em ${style.name}`}>
-          <img src={style.image} alt={`Demonstração do corte ${style.name}`} loading="lazy" />
-          <span>0{index + 1}</span>
-          <div><small>REFERÊNCIA</small><h3>{style.name}</h3><p>{style.detail}</p><b>QUERO ESTE ESTILO →</b></div>
+        <div className="lookbook-track" ref={trackRef}>{haircutGallery.map(style => <button className={`look-card${style.image ? "" : " look-card--detail"}`} key={style.name} onClick={openBooking} aria-label={`Agendar ${style.name}`}>
+          {style.image && <img src={style.image} alt={`Referência de ${style.name}`} loading="lazy" decoding="async" style={{ objectPosition: style.imagePosition }} />}
+          <div><h3>{style.name}</h3><p>{style.detail}</p><dl className="look-card-meta"><div><dt>VALOR</dt><dd>{money.format(style.price)}</dd></div><div><dt>DURAÇÃO</dt><dd>{style.duration}</dd></div></dl><b>AGENDAR ESTE ESTILO <Icon name="arrow-right" /></b></div>
         </button>)}</div>
       </div>
       <div className="lookbook-progress" aria-hidden="true"><i /><span>ROLE PARA VER TODOS OS CORTES</span></div>
@@ -468,14 +510,14 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
   return <div className="dashboard-page admin-dashboard">
     <header className="admin-overview-head">
       <div><small>PAINEL DO PROPRIETÁRIO</small><h1>Visão geral</h1><p>Acompanhe a operação da Bart do Corte em um só lugar.</p></div>
-      <div className="admin-head-actions"><span><i /> Dados locais atualizados</span><button onClick={openBooking}>NOVO AGENDAMENTO <b>＋</b></button></div>
+      <div className="admin-head-actions"><span><i /> Dados locais atualizados</span><button onClick={openBooking}>NOVO AGENDAMENTO <Icon name="plus" /></button></div>
     </header>
 
     <section className="admin-kpi-grid" aria-label="Indicadores da barbearia">
-      <article className="admin-kpi primary"><span>FATURAMENTO REGISTRADO</span><strong>{money.format(revenue)}</strong><p>{completedToday} atendimento{completedToday === 1 ? "" : "s"} concluído{completedToday === 1 ? "" : "s"} hoje</p><i>↗</i></article>
-      <article className="admin-kpi"><span>AGENDA DE HOJE</span><strong>{todayAppointments.length}</strong><p>{confirmedToday} confirmados · {completedToday} concluídos</p><i>▦</i></article>
-      <article className="admin-kpi"><span>CLIENTES CADASTRADOS</span><strong>{clientCount}</strong><p>Identificados neste navegador</p><i>○</i></article>
-      <article className="admin-kpi"><span>COMISSÕES ESTIMADAS</span><strong>{money.format(pending)}</strong><p>Repasse acumulado da equipe</p><i>$</i></article>
+      <article className="admin-kpi primary"><span>FATURAMENTO REGISTRADO</span><strong>{money.format(revenue)}</strong><p>{completedToday} atendimento{completedToday === 1 ? "" : "s"} concluído{completedToday === 1 ? "" : "s"} hoje</p><i><Icon name="arrow-up-right" /></i></article>
+      <article className="admin-kpi"><span>AGENDA DE HOJE</span><strong>{todayAppointments.length}</strong><p>{confirmedToday} confirmados · {completedToday} concluídos</p><i><Icon name="calendar" /></i></article>
+      <article className="admin-kpi"><span>CLIENTES CADASTRADOS</span><strong>{clientCount}</strong><p>Identificados neste navegador</p><i><Icon name="user" /></i></article>
+      <article className="admin-kpi"><span>COMISSÕES ESTIMADAS</span><strong>{money.format(pending)}</strong><p>Repasse acumulado da equipe</p><i><Icon name="wallet" /></i></article>
     </section>
 
     <div className="admin-main-grid">
@@ -486,7 +528,7 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
       </section>
 
       <section className="admin-agenda-panel">
-        <header><div><small>OPERAÇÃO DE HOJE</small><h2>Próximos horários</h2></div><button onClick={() => setScreen("agenda")}>VER AGENDA →</button></header>
+        <header><div><small>OPERAÇÃO DE HOJE</small><h2>Próximos horários</h2></div><button onClick={() => setScreen("agenda")}>VER AGENDA <Icon name="arrow-right" /></button></header>
         <div className="admin-agenda-list">{todayAppointments.length ? todayAppointments.slice(0, 5).map(item => {
           const barber = data.barbers.find(current => current.id === item.barberId);
           return <article key={item.id}><time>{item.time}</time><div><b>{item.client}</b><span>{services.get(item.serviceId)?.name} · {barber?.name}</span></div><em className={item.status}>{statusLabels[item.status]}</em></article>;
@@ -495,14 +537,14 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
     </div>
 
     <section className="admin-team-panel">
-      <header><div><small>EQUIPE</small><h2>Desempenho dos barbeiros</h2></div><button onClick={() => setScreen("management")}>AJUSTAR COMISSÕES →</button></header>
+      <header><div><small>EQUIPE</small><h2>Desempenho dos barbeiros</h2></div><button onClick={() => setScreen("management")}>AJUSTAR COMISSÕES <Icon name="arrow-right" /></button></header>
       <div className="admin-team-grid">{barberStats.map((barber, index) => <article key={barber.id}>
         <div className="admin-barber-heading"><span>{barber.name.charAt(0)}<i>0{index + 1}</i></span><div><small>{barber.specialty}</small><h3>{barber.name}</h3></div><b>{barber.commission}%</b></div>
         <div className="admin-barber-numbers"><div><span>PRODUÇÃO</span><strong>{money.format(barber.produced)}</strong></div><div><span>COMISSÃO</span><strong>{money.format(barber.commissionValue)}</strong></div><div><span>ATENDIMENTOS</span><strong>{barber.appointments}</strong></div></div>
       </article>)}</div>
     </section>
 
-    <section className="admin-quick-actions"><button onClick={openBooking}><span>＋</span><div><b>Novo agendamento</b><small>Adicionar cliente à agenda</small></div><i>→</i></button><button onClick={() => setScreen("agenda")}><span>▦</span><div><b>Agenda completa</b><small>Consultar horários da equipe</small></div><i>→</i></button><button onClick={() => setScreen("management")}><span>≡</span><div><b>Serviços e comissões</b><small>Configurar operação</small></div><i>→</i></button></section>
+    <section className="admin-quick-actions"><button onClick={openBooking}><span><Icon name="plus" /></span><div><b>Novo agendamento</b><small>Adicionar cliente à agenda</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("agenda")}><span><Icon name="calendar" /></span><div><b>Agenda completa</b><small>Consultar horários da equipe</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("management")}><span><Icon name="grid" /></span><div><b>Serviços e comissões</b><small>Configurar operação</small></div><i><Icon name="arrow-right" /></i></button></section>
   </div>;
 }
 
@@ -518,7 +560,7 @@ function AgendaScreen({ role, data, services, barbers, selectedDate, setSelected
 }
 
 function TeamScreen({ data, openBooking }: { data: StoreData; openBooking: () => void }) {
-  return <div className="dashboard-page"><PageIntro overline="NOSSA EQUIPE" title="Escolha seu barbeiro" subtitle="Profissionais da Bart do Corte" /><div className="team-grid">{data.barbers.filter(item => item.active).map((item, index) => <article key={item.id}><div className="barber-avatar">{item.name.slice(0, 1)}<span>0{index + 1}</span></div><small>BARBEIRO</small><h3>{item.name}</h3><p>{item.specialty}</p><button onClick={openBooking}>VER HORÁRIOS →</button></article>)}</div></div>;
+  return <div className="dashboard-page"><PageIntro overline="NOSSA EQUIPE" title="Escolha seu barbeiro" subtitle="Profissionais da Bart do Corte" /><div className="team-grid">{data.barbers.filter(item => item.active).map((item, index) => <article key={item.id}><div className="barber-avatar">{item.name.slice(0, 1)}<span>0{index + 1}</span></div><small>BARBEIRO</small><h3>{item.name}</h3><p>{item.specialty}</p><button onClick={openBooking}>VER HORÁRIOS <Icon name="arrow-right" /></button></article>)}</div></div>;
 }
 
 function EarningsScreen({ appointments, services, commission, revenue }: { appointments: Appointment[]; services: Map<string, Service>; commission: number; revenue: number }) {
@@ -530,22 +572,22 @@ function ManagementScreen({ data, setData, newService, setNewService, addService
 }
 
 function ProfileScreen({ role, selectRole, exportBackup, importBackup, resetData }: { role: Role; selectRole: (role: Role) => void; exportBackup: () => void; importBackup: (event: ChangeEvent<HTMLInputElement>) => void; resetData: () => void }) {
-  return <div className="dashboard-page"><PageIntro overline="CONTA LOCAL" title="Perfil e dados" subtitle="Este MVP salva tudo neste navegador" /><div className="profile-card"><div className="large-avatar">{role === "admin" ? "AD" : role === "barber" ? "AN" : "CD"}</div><small>ACESSO ATUAL</small><h2>{roleLabels[role]}</h2><p>{role === "client" ? "Cliente Demo" : role === "barber" ? "Anderson" : "Administrador Bart do Corte"}</p></div><SectionTitle overline="DEMONSTRAÇÃO" title="Trocar de acesso" /><div className="role-grid">{(["client", "barber", "admin"] as Role[]).map(item => <button key={item} className={role === item ? "active" : ""} onClick={() => selectRole(item)}><span>{item === "client" ? "○" : item === "barber" ? "✂" : "▦"}</span><b>{roleLabels[item]}</b></button>)}</div><SectionTitle overline="SEGURANÇA LOCAL" title="Backup" /><div className="backup-actions"><button onClick={exportBackup}>EXPORTAR DADOS <span>↓</span></button><label>IMPORTAR BACKUP <span>↑</span><input type="file" accept="application/json" onChange={importBackup} /></label><button className="danger" onClick={resetData}>RESTAURAR DEMONSTRAÇÃO</button></div><div className="local-warning"><b>Somente neste dispositivo</b><p>Os dados não são sincronizados com outros celulares. Exporte um backup antes de limpar o navegador.</p></div></div>;
+  return <div className="dashboard-page"><PageIntro overline="CONTA LOCAL" title="Perfil e dados" subtitle="Este MVP salva tudo neste navegador" /><div className="profile-card"><div className="large-avatar">{role === "admin" ? "AD" : role === "barber" ? "AN" : "CD"}</div><small>ACESSO ATUAL</small><h2>{roleLabels[role]}</h2><p>{role === "client" ? "Cliente Demo" : role === "barber" ? "Anderson" : "Administrador Bart do Corte"}</p></div><SectionTitle overline="DEMONSTRAÇÃO" title="Trocar de acesso" /><div className="role-grid">{(["client", "barber", "admin"] as Role[]).map(item => <button key={item} className={role === item ? "active" : ""} onClick={() => selectRole(item)}><span><Icon name={item === "client" ? "user" : item === "barber" ? "scissors" : "grid"} /></span><b>{roleLabels[item]}</b></button>)}</div><SectionTitle overline="SEGURANÇA LOCAL" title="Backup" /><div className="backup-actions"><button onClick={exportBackup}>EXPORTAR DADOS <Icon name="download" /></button><label>IMPORTAR BACKUP <Icon name="upload" /><input type="file" accept="application/json" onChange={importBackup} /></label><button className="danger" onClick={resetData}>RESTAURAR DEMONSTRAÇÃO</button></div><div className="local-warning"><b>Somente neste dispositivo</b><p>Os dados não são sincronizados com outros celulares. Exporte um backup antes de limpar o navegador.</p></div></div>;
 }
 
 function BookingSheet({ step, setStep, booking, setBooking, data, availableTimes, close, confirm }: { step: number; setStep: (step: number) => void; booking: { serviceId: string; barberId: string; date: string; time: string }; setBooking: (value: { serviceId: string; barberId: string; date: string; time: string }) => void; data: StoreData; availableTimes: string[]; close: () => void; confirm: () => void }) {
   const dates = Array.from({ length: 10 }, (_, index) => dateISO(index + 1));
   const service = data.services.find(item => item.id === booking.serviceId);
   const barber = data.barbers.find(item => item.id === booking.barberId);
-  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}><section className="booking-sheet"><header><div><small>NOVO AGENDAMENTO</small><b>Etapa {step} de 4</b></div><button onClick={close}>×</button></header><div className="steps"><i className={step >= 1 ? "done" : ""} /><i className={step >= 2 ? "done" : ""} /><i className={step >= 3 ? "done" : ""} /><i className={step >= 4 ? "done" : ""} /></div>{step === 1 && <div className="sheet-content"><h2>Qual serviço?</h2><div className="choice-list">{data.services.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, serviceId: item.id }); setStep(2); }}><div><b>{item.name}</b><span>{item.description} · {item.duration} min</span></div><strong>{money.format(item.price)}</strong></button>)}</div></div>}{step === 2 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(1)}>← Voltar</button><h2>Com quem?</h2><div className="choice-list barber-choices">{data.barbers.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, barberId: item.id }); setStep(3); }}><i>{item.name[0]}</i><div><b>{item.name}</b><span>{item.specialty}</span></div><strong>→</strong></button>)}</div></div>}{step === 3 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(2)}>← Voltar</button><h2>Escolha o dia</h2><div className="booking-dates">{dates.map(date => <button key={date} className={booking.date === date ? "active" : ""} onClick={() => { setBooking({ ...booking, date, time: "" }); setStep(4); }}><span>{weekday(date)}</span><b>{date.slice(-2)}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></button>)}</div></div>}{step === 4 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(3)}>← Voltar</button><h2>Melhor horário</h2><p className="booking-summary">{service?.name} com {barber?.name} · {formatDate(booking.date)}</p><div className="time-grid">{availableTimes.map(time => <button key={time} className={booking.time === time ? "active" : ""} onClick={() => setBooking({ ...booking, time })}>{time}</button>)}</div>{!availableTimes.length && <EmptyState title="Sem horários livres" text="Escolha outra data para continuar." />}<button className="confirm-button" disabled={!booking.time} onClick={confirm}>CONFIRMAR AGENDAMENTO <span>→</span></button></div>}</section></div>;
+  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}><section className="booking-sheet"><header><div><small>NOVO AGENDAMENTO</small><b>Etapa {step} de 4</b></div><button onClick={close} aria-label="Fechar"><Icon name="close" /></button></header><div className="steps"><i className={step >= 1 ? "done" : ""} /><i className={step >= 2 ? "done" : ""} /><i className={step >= 3 ? "done" : ""} /><i className={step >= 4 ? "done" : ""} /></div>{step === 1 && <div className="sheet-content"><h2>Qual serviço?</h2><div className="choice-list">{data.services.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, serviceId: item.id }); setStep(2); }}><div><b>{item.name}</b><span>{item.description} · {item.duration} min</span></div><strong>{money.format(item.price)}</strong></button>)}</div></div>}{step === 2 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(1)}><Icon name="arrow-left" />Voltar</button><h2>Com quem?</h2><div className="choice-list barber-choices">{data.barbers.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, barberId: item.id }); setStep(3); }}><i>{item.name[0]}</i><div><b>{item.name}</b><span>{item.specialty}</span></div><strong><Icon name="arrow-right" /></strong></button>)}</div></div>}{step === 3 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(2)}><Icon name="arrow-left" />Voltar</button><h2>Escolha o dia</h2><div className="booking-dates">{dates.map(date => <button key={date} className={booking.date === date ? "active" : ""} onClick={() => { setBooking({ ...booking, date, time: "" }); setStep(4); }}><span>{weekday(date)}</span><b>{date.slice(-2)}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></button>)}</div></div>}{step === 4 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(3)}><Icon name="arrow-left" />Voltar</button><h2>Melhor horário</h2><p className="booking-summary">{service?.name} com {barber?.name} · {formatDate(booking.date)}</p><div className="time-grid">{availableTimes.map(time => <button key={time} className={booking.time === time ? "active" : ""} onClick={() => setBooking({ ...booking, time })}>{time}</button>)}</div>{!availableTimes.length && <EmptyState title="Sem horários livres" text="Escolha outra data para continuar." />}<button className="confirm-button" disabled={!booking.time} onClick={confirm}>CONFIRMAR AGENDAMENTO <Icon name="arrow-right" /></button></div>}</section></div>;
 }
 
-function BottomNav({ items, screen, onNavigate }: { items: string[][]; screen: Screen; onNavigate: (target: string) => void }) {
-  return <nav className="bottom-nav" aria-label="Navegação principal">{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "nav-plus" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><span>{icon}</span>{target !== "plus" && label}</button>)}</nav>;
+function BottomNav({ items, screen, onNavigate }: { items: [string, IconName, string][]; screen: Screen; onNavigate: (target: string) => void }) {
+  return <nav className="bottom-nav" aria-label="Navegação principal">{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "nav-plus" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><span><Icon name={icon} /></span>{target !== "plus" && label}</button>)}</nav>;
 }
 
-function SectionTitle({ overline, title, action, onAction }: { overline: string; title: string; action?: string; onAction?: () => void }) { return <div className="section-heading"><div><small>{overline}</small><h2>{title}</h2></div>{action && <button onClick={onAction}>{action}</button>}</div>; }
-function PageIntro({ overline, title, subtitle }: { overline: string; title: string; subtitle: string }) { return <div className="page-intro"><small>{overline}</small><h1>{title}</h1><p>{subtitle}</p></div>; }
+function SectionTitle({ title, action, onAction }: { overline: string; title: string; action?: string; onAction?: () => void }) { return <div className="section-heading"><h2>{title}</h2>{action && <button onClick={onAction}>{action}</button>}</div>; }
+function PageIntro({ title, subtitle }: { overline: string; title: string; subtitle: string }) { return <div className="page-intro"><h1>{title}</h1><p>{subtitle}</p></div>; }
 function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) { return <article className={`metric ${tone ?? ""}`}><span>{label}</span><b>{value}</b></article>; }
 function CompactAppointment({ item, service, barber }: { item: Appointment; service?: Service; barber?: string }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{service?.name}</b><span>{barber || item.client}</span></div><strong className={`dot ${item.status}`} aria-label={statusLabels[item.status]} /></article>; }
-function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span>✂</span><b>{title}</b><p>{text}</p></div>; }
+function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Icon name="scissors" /></span><b>{title}</b><p>{text}</p></div>; }
