@@ -1,0 +1,6 @@
+RewriteEngine On
+
+# Mantém os arquivos estáticos e envia as URLs dos portais para o aplicativo.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]

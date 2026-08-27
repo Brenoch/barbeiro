@@ -1,9 +1,9 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Role = "client" | "barber" | "admin";
-type Screen = "home" | "agenda" | "team" | "management" | "profile";
+type Screen = "home" | "agenda" | "team" | "availability" | "management" | "profile" | "access";
 type Status = "confirmed" | "completed" | "cancelled" | "noshow";
 type IconName = "home" | "calendar" | "plus" | "scissors" | "user" | "grid" | "wallet" | "arrow-right" | "arrow-left" | "arrow-up-right" | "check" | "close" | "download" | "upload";
 
@@ -43,17 +43,45 @@ type Appointment = {
   paymentMethod?: "Pix" | "Dinheiro" | "Débito" | "Crédito";
 };
 
+type WorkDay = {
+  weekday: number;
+  enabled: boolean;
+  start: string;
+  end: string;
+};
+
+type Session =
+  | { role: "client"; name: string; phone: string }
+  | { role: "barber"; name: string; barberId: string }
+  | { role: "admin"; name: string };
+
 type StoreData = {
   services: Service[];
   barbers: Barber[];
   appointments: Appointment[];
   blocks: { id: string; barberId: string; date: string; time: string }[];
+  availability: Record<string, WorkDay[]>;
   shopName: string;
   neighborhood: string;
 };
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const STORAGE_KEY = "bartdocorte-mvp-v1";
+const STORAGE_KEY = "bartdocorte-sales-preview-v2";
+const sessionKey = (role: Role) => `${STORAGE_KEY}-session-${role}`;
+const BARBER_ACCOUNTS = [
+  { username: "bart", password: "1234", barberId: "bart" },
+  { username: "vt", password: "1234", barberId: "vt" },
+];
+const ADMIN_ACCOUNT = { username: "barbearia", password: "1234" };
+
+function defaultWeek(overrides: Partial<Record<number, { start: string; end: string }>>): WorkDay[] {
+  return Array.from({ length: 7 }, (_, weekday) => ({
+    weekday,
+    enabled: Boolean(overrides[weekday]),
+    start: overrides[weekday]?.start ?? "09:00",
+    end: overrides[weekday]?.end ?? "18:00",
+  }));
+}
 
 function dateISO(offset = 0) {
   const date = new Date();
@@ -72,17 +100,27 @@ const initialData = (): StoreData => ({
     { id: "kids", name: "Corte infantil", description: "Para os pequenos", price: 30, duration: 35, active: true },
   ],
   barbers: [
-    { id: "anderson", name: "Anderson", specialty: "Fade e navalhado", commission: 50, active: true },
     { id: "bart", name: "Bart", specialty: "Clássicos e barba", commission: 50, active: true },
+    { id: "vt", name: "VT", specialty: "Fade e navalhado", commission: 50, active: true },
   ],
   appointments: [
-    { id: "a1", client: "Cliente 01", phone: "(21) 9XXXX-0001", serviceId: "combo", barberId: "anderson", date: dateISO(), time: "09:00", status: "completed", paid: true, paymentMethod: "Pix" },
-    { id: "a2", client: "Cliente 02", phone: "(21) 9XXXX-0002", serviceId: "cut", barberId: "anderson", date: dateISO(), time: "11:00", status: "confirmed", paid: false },
+    { id: "a1", client: "Cliente 01", phone: "(21) 9XXXX-0001", serviceId: "combo", barberId: "vt", date: dateISO(), time: "10:00", status: "completed", paid: true, paymentMethod: "Pix" },
+    { id: "a2", client: "Cliente 02", phone: "(21) 9XXXX-0002", serviceId: "cut", barberId: "vt", date: dateISO(), time: "11:00", status: "confirmed", paid: false },
     { id: "a3", client: "Cliente 03", phone: "(21) 9XXXX-0003", serviceId: "beard", barberId: "bart", date: dateISO(), time: "13:30", status: "confirmed", paid: false },
-    { id: "a4", client: "Cliente 04", phone: "(21) 9XXXX-0004", serviceId: "cut", barberId: "anderson", date: dateISO(1), time: "15:00", status: "confirmed", paid: false },
+    { id: "a4", client: "Cliente 04", phone: "(21) 9XXXX-0004", serviceId: "cut", barberId: "vt", date: dateISO(1), time: "15:00", status: "confirmed", paid: false },
     { id: "a5", client: "Cliente 05", phone: "(21) 9XXXX-0005", serviceId: "combo", barberId: "bart", date: dateISO(-1), time: "17:00", status: "completed", paid: true, paymentMethod: "Débito" },
   ],
   blocks: [],
+  availability: {
+    bart: defaultWeek({ 1: { start: "10:00", end: "21:00" } }),
+    vt: defaultWeek({
+      2: { start: "09:00", end: "18:00" },
+      3: { start: "09:00", end: "18:00" },
+      4: { start: "09:00", end: "18:00" },
+      5: { start: "09:00", end: "18:00" },
+      6: { start: "09:00", end: "18:00" },
+    }),
+  },
 });
 
 const roleLabels: Record<Role, string> = { client: "Cliente", barber: "Barbeiro", admin: "Proprietário" };
@@ -91,6 +129,10 @@ const statusLabels: Record<Status, string> = { confirmed: "Confirmado", complete
 function minutes(value: string) {
   const [hour, min] = value.split(":").map(Number);
   return hour * 60 + min;
+}
+
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, "");
 }
 
 function formatDate(value: string) {
@@ -104,31 +146,52 @@ function weekday(value: string) {
 export default function BartApp() {
   const [data, setData] = useState<StoreData>(initialData);
   const [ready, setReady] = useState(false);
-  const [role, setRole] = useState<Role>("client");
+  const [session, setSession] = useState<Session | null>(null);
+  const [portal, setPortal] = useState<Role>("client");
   const [screen, setScreen] = useState<Screen>("home");
   const [selectedDate, setSelectedDate] = useState(dateISO());
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [booking, setBooking] = useState({ serviceId: "", barberId: "", date: dateISO(1), time: "" });
   const [toast, setToast] = useState("");
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
+  const [accessMode, setAccessMode] = useState<Role>("client");
+  const [pendingBooking, setPendingBooking] = useState(false);
+  const [credentials, setCredentials] = useState({ name: "", phone: "", username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
   const [newService, setNewService] = useState({ name: "", price: "", duration: "" });
+  const role: Role = session?.role ?? portal;
+  const currentBarberId = session?.role === "barber" ? session.barberId : null;
 
+  /* eslint-disable react-hooks/set-state-in-effect -- restaura uma sessão persistida fora do React */
   useEffect(() => {
     try {
+      const path = window.location.pathname.replace(/\/+$/, "");
+      const routeRole: Role = path === "/barbeiro" ? "barber" : path === "/barbearia" ? "admin" : "client";
       const saved = window.localStorage.getItem(STORAGE_KEY);
-      const savedRole = window.localStorage.getItem(`${STORAGE_KEY}-role`) as Role | null;
-      if (saved) setData(JSON.parse(saved));
-      if (savedRole && ["client", "barber", "admin"].includes(savedRole)) setRole(savedRole);
-    } catch { /* mantém os dados de demonstração */ }
+      const savedSession = window.localStorage.getItem(sessionKey(routeRole));
+      setPortal(routeRole);
+      setAccessMode(routeRole);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<StoreData>;
+        const defaults = initialData();
+        setData({ ...defaults, ...parsed, availability: parsed.availability ?? defaults.availability });
+      }
+      if (savedSession) {
+        const parsedSession = JSON.parse(savedSession) as Session;
+        if (parsedSession.role === routeRole) setSession(parsedSession);
+      }
+      if (routeRole !== "client" && !savedSession) setScreen("access");
+    } catch { /* mantém os dados iniciais */ }
     setReady(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (!ready) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    window.localStorage.setItem(`${STORAGE_KEY}-role`, role);
-  }, [data, role, ready]);
+    if (session) window.localStorage.setItem(sessionKey(session.role), JSON.stringify(session));
+    else window.localStorage.removeItem(sessionKey(portal));
+  }, [data, portal, session, ready]);
 
   useEffect(() => {
     if (!toast) return;
@@ -140,37 +203,107 @@ export default function BartApp() {
   const barbers = useMemo(() => new Map(data.barbers.map(item => [item.id, item])), [data.barbers]);
   const completed = data.appointments.filter(item => item.status === "completed");
   const revenue = completed.reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
-  const barberRevenue = completed.filter(item => item.barberId === "anderson").reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
-  const barberCommission = barberRevenue * ((barbers.get("anderson")?.commission ?? 0) / 100);
+  const barberRevenue = completed.filter(item => item.barberId === currentBarberId).reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
+  const barberCommission = barberRevenue * ((barbers.get(currentBarberId ?? "")?.commission ?? 0) / 100);
   const todayAppointments = data.appointments.filter(item => item.date === dateISO() && item.status !== "cancelled");
 
-  const availableTimes = useMemo(() => {
-    const result: string[] = [];
+  const timeSlots = useMemo(() => {
+    const result: { time: string; available: boolean }[] = [];
     const duration = services.get(booking.serviceId)?.duration ?? 30;
-    for (let value = 9 * 60; value <= 18 * 60; value += 30) {
+    const day = new Date(`${booking.date}T12:00:00`).getDay();
+    const schedule = data.availability[booking.barberId]?.find(item => item.weekday === day);
+    for (let value = 8 * 60; value <= 21 * 60; value += 30) {
       const time = `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+      const insideSchedule = Boolean(schedule?.enabled && value >= minutes(schedule.start) && value + duration <= minutes(schedule.end));
       const conflict = data.appointments.some(item => {
         if (item.date !== booking.date || item.barberId !== booking.barberId || item.status === "cancelled") return false;
         const currentDuration = services.get(item.serviceId)?.duration ?? 30;
         return value < minutes(item.time) + currentDuration && value + duration > minutes(item.time);
       });
       const blocked = data.blocks.some(item => item.date === booking.date && item.barberId === booking.barberId && item.time === time);
-      if (!conflict && !blocked) result.push(time);
+      result.push({ time, available: insideSchedule && !conflict && !blocked });
     }
     return result;
-  }, [booking, data.appointments, data.blocks, services]);
+  }, [booking, data.appointments, data.availability, data.blocks, services]);
 
   const navItems: [string, IconName, string][] = role === "client"
     ? [["home", "home", "Início"], ["agenda", "calendar", "Agendamentos"], ["plus", "plus", "Agendar"], ["team", "scissors", "Equipe"], ["profile", "user", "Perfil"]]
     : role === "barber"
-      ? [["home", "home", "Resumo"], ["agenda", "calendar", "Agenda"], ["plus", "plus", "Encaixe"], ["management", "wallet", "Ganhos"], ["profile", "user", "Perfil"]]
-      : [["home", "grid", "Visão geral"], ["agenda", "calendar", "Agenda"], ["plus", "plus", "Agendar"], ["management", "grid", "Gestão"], ["profile", "user", "Perfil"]];
+      ? [["home", "home", "Resumo"], ["agenda", "calendar", "Agenda"], ["availability", "calendar", "Horários"], ["management", "wallet", "Ganhos"], ["profile", "user", "Perfil"]]
+      : [["home", "grid", "Visão geral"], ["agenda", "calendar", "Agenda"], ["management", "grid", "Gestão"], ["profile", "user", "Perfil"]];
 
-  function selectRole(nextRole: Role) {
-    setRole(nextRole);
+  function openAccess(mode: Role, wantsBooking = false) {
+    setAccessMode(mode);
+    setPendingBooking(wantsBooking);
+    setCredentials({ name: "", phone: "", username: "", password: "" });
+    setLoginError("");
+    setScreen("access");
+  }
+
+  function submitAccess() {
+    setLoginError("");
+    if (accessMode === "client") {
+      const name = credentials.name.trim();
+      const phone = credentials.phone.trim();
+      if (name.length < 2 || phone.replace(/\D/g, "").length < 10) {
+        setLoginError("Informe seu nome e um telefone válido com DDD.");
+        return;
+      }
+      setSession({ role: "client", name, phone });
+      setScreen("home");
+      setToast(`Olá, ${name.split(" ")[0]}! Vamos agendar.`);
+      if (pendingBooking) window.setTimeout(openBooking, 0);
+      setPendingBooking(false);
+      return;
+    }
+
+    const username = credentials.username.trim().toLowerCase();
+    if (accessMode === "barber") {
+      const account = BARBER_ACCOUNTS.find(item => item.username === username && item.password === credentials.password);
+      if (!account) {
+        setLoginError("Nome ou senha de barbeiro incorretos.");
+        return;
+      }
+      const name = data.barbers.find(item => item.id === account.barberId)?.name ?? account.username;
+      setSession({ role: "barber", name, barberId: account.barberId });
+      setScreen("home");
+      setToast(`Acesso de ${name} liberado`);
+      return;
+    }
+
+    if (username !== ADMIN_ACCOUNT.username || credentials.password !== ADMIN_ACCOUNT.password) {
+      setLoginError("Nome ou senha de administrador incorretos.");
+      return;
+    }
+    setSession({ role: "admin", name: "Barbearia" });
     setScreen("home");
-    setShowRoleMenu(false);
-    setToast(`Modo ${roleLabels[nextRole]} ativado`);
+    setToast("Painel administrativo liberado");
+  }
+
+  function logout() {
+    setSession(null);
+    setScreen(portal === "client" ? "home" : "access");
+    setToast("Você saiu deste acesso");
+  }
+
+  function navigate(target: string) {
+    if (target === "plus") {
+      requestBooking();
+      return;
+    }
+    if (!session && (target === "agenda" || target === "profile")) {
+      openAccess("client");
+      return;
+    }
+    setScreen(target as Screen);
+  }
+
+  function requestBooking() {
+    if (!session) {
+      openAccess("client", true);
+      return;
+    }
+    openBooking();
   }
 
   function openBooking() {
@@ -180,10 +313,12 @@ export default function BartApp() {
   }
 
   function confirmBooking() {
+    const client = session?.role === "client" ? session.name : "Cliente balcão";
+    const phone = session?.role === "client" ? session.phone : "Não informado";
     const appointment: Appointment = {
       id: `a-${Date.now()}`,
-      client: role === "client" ? "Cliente Demo" : "Cliente balcão",
-      phone: "(21) 9XXXX-0000",
+      client,
+      phone,
       serviceId: booking.serviceId,
       barberId: booking.barberId,
       date: booking.date,
@@ -207,12 +342,25 @@ export default function BartApp() {
   }
 
   function toggleBlock(time: string) {
-    const existing = data.blocks.find(item => item.barberId === "anderson" && item.date === selectedDate && item.time === time);
+    if (!currentBarberId) return;
+    const existing = data.blocks.find(item => item.barberId === currentBarberId && item.date === selectedDate && item.time === time);
     setData(current => ({
       ...current,
-      blocks: existing ? current.blocks.filter(item => item.id !== existing.id) : [...current.blocks, { id: `b-${Date.now()}`, barberId: "anderson", date: selectedDate, time }],
+      blocks: existing ? current.blocks.filter(item => item.id !== existing.id) : [...current.blocks, { id: `b-${Date.now()}`, barberId: currentBarberId, date: selectedDate, time }],
     }));
     setToast(existing ? "Horário liberado" : "Horário bloqueado");
+  }
+
+  function updateAvailability(weekdayNumber: number, changes: Partial<WorkDay>) {
+    if (!currentBarberId) return;
+    setData(current => ({
+      ...current,
+      availability: {
+        ...current.availability,
+        [currentBarberId]: (current.availability[currentBarberId] ?? defaultWeek({})).map(item => item.weekday === weekdayNumber ? { ...item, ...changes } : item),
+      },
+    }));
+    setToast("Disponibilidade atualizada");
   }
 
   function addService() {
@@ -225,61 +373,29 @@ export default function BartApp() {
     setToast("Serviço cadastrado");
   }
 
-  function exportBackup() {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `bart-do-corte-backup-${dateISO()}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setToast("Backup exportado");
-  }
-
-  function importBackup(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        setData(JSON.parse(String(reader.result)));
-        setToast("Backup restaurado");
-      } catch { setToast("Arquivo de backup inválido"); }
-    };
-    reader.readAsText(file);
-  }
-
-  function resetData() {
-    if (!window.confirm("Restaurar os dados de demonstração?")) return;
-    setData(initialData());
-    setToast("Dados de demonstração restaurados");
-  }
+  const accessRequired = screen === "access" || (portal !== "client" && !session);
 
   return (
     <main className="app-shell">
       <section className="app-frame">
-        <Header role={role} items={navItems} screen={screen} onNavigate={(target) => target === "plus" ? openBooking() : setScreen(target as Screen)} onOpen={() => setShowRoleMenu(value => !value)} />
-        {showRoleMenu && (
-          <div className="role-popover">
-            <small>VISUALIZAR COMO</small>
-            {(["client", "barber", "admin"] as Role[]).map(item => (
-              <button key={item} className={role === item ? "selected" : ""} onClick={() => selectRole(item)}>{roleLabels[item]}<Icon name="arrow-right" /></button>
-            ))}
-          </div>
-        )}
+        <Header role={role} session={session} items={accessRequired ? [] : navItems} screen={screen} onNavigate={navigate} onOpen={() => session ? setScreen("profile") : openAccess(portal)} />
 
         <div className="app-content">
-          {screen === "home" && role === "client" && <ClientHome data={data} openBooking={openBooking} setScreen={setScreen} />}
-          {screen === "home" && role === "barber" && <BarberHome appointments={todayAppointments.filter(item => item.barberId === "anderson")} services={services} revenue={barberRevenue} commission={barberCommission} />}
-          {screen === "home" && role === "admin" && <AdminHome data={data} services={services} revenue={revenue} todayAppointments={todayAppointments} setScreen={setScreen} openBooking={openBooking} />}
-          {screen === "agenda" && <AgendaScreen role={role} data={data} services={services} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} toggleBlock={toggleBlock} />}
-          {screen === "team" && <TeamScreen data={data} openBooking={openBooking} />}
-          {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === "anderson")} services={services} commission={barberCommission} revenue={barberRevenue} />}
-          {screen === "management" && role === "admin" && <ManagementScreen data={data} setData={setData} newService={newService} setNewService={setNewService} addService={addService} />}
-          {screen === "profile" && <ProfileScreen role={role} selectRole={selectRole} exportBackup={exportBackup} importBackup={importBackup} resetData={resetData} />}
+          {accessRequired && <AccessScreen mode={accessMode} credentials={credentials} setCredentials={setCredentials} error={loginError} submit={submitAccess} cancel={() => { setPendingBooking(false); if (portal === "client") setScreen("home"); else window.location.assign("/"); }} />}
+          {!accessRequired && <>
+            {screen === "home" && role === "client" && <ClientHome data={data} session={session?.role === "client" ? session : null} openBooking={requestBooking} setScreen={setScreen} />}
+            {screen === "home" && role === "barber" && <BarberHome barberName={session?.role === "barber" ? session.name : "Barbeiro"} appointments={todayAppointments.filter(item => item.barberId === currentBarberId)} services={services} revenue={barberRevenue} commission={barberCommission} />}
+            {screen === "home" && role === "admin" && <AdminHome data={data} services={services} revenue={revenue} todayAppointments={todayAppointments} setScreen={setScreen} />}
+            {screen === "agenda" && <AgendaScreen role={role} session={session} barberId={currentBarberId} data={data} services={services} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} toggleBlock={toggleBlock} />}
+            {screen === "team" && <TeamScreen data={data} openBooking={requestBooking} />}
+            {screen === "availability" && role === "barber" && currentBarberId && <AvailabilityScreen barberName={session?.name ?? "Barbeiro"} days={data.availability[currentBarberId] ?? defaultWeek({})} updateDay={updateAvailability} />}
+            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} services={services} commission={barberCommission} revenue={barberRevenue} />}
+            {screen === "management" && role === "admin" && <ManagementScreen data={data} setData={setData} newService={newService} setNewService={setNewService} addService={addService} />}
+            {screen === "profile" && session && <ProfileScreen session={session} logout={logout} />}
+          </>}
         </div>
 
-        <BottomNav items={navItems} screen={screen} onNavigate={(target) => target === "plus" ? openBooking() : setScreen(target as Screen)} />
+        {!accessRequired && <BottomNav items={navItems} screen={screen} onNavigate={navigate} />}
       </section>
 
       {bookingOpen && (
@@ -289,7 +405,7 @@ export default function BartApp() {
           booking={booking}
           setBooking={setBooking}
           data={data}
-          availableTimes={availableTimes}
+          timeSlots={timeSlots}
           close={() => setBookingOpen(false)}
           confirm={confirmBooking}
         />
@@ -299,7 +415,37 @@ export default function BartApp() {
   );
 }
 
-function Header({ role, items, screen, onNavigate, onOpen }: { role: Role; items: [string, IconName, string][]; screen: Screen; onNavigate: (target: string) => void; onOpen: () => void }) {
+function AccessScreen({ mode, credentials, setCredentials, error, submit, cancel }: { mode: Role; credentials: { name: string; phone: string; username: string; password: string }; setCredentials: (value: { name: string; phone: string; username: string; password: string }) => void; error: string; submit: () => void; cancel: () => void }) {
+  const copy = mode === "client"
+    ? { overline: "IDENTIFICAÇÃO RÁPIDA", title: "Antes de agendar", subtitle: "Informe seu nome e telefone para identificar e acompanhar seus horários." }
+    : mode === "barber"
+      ? { overline: "ÁREA DA EQUIPE", title: "Acesso do barbeiro", subtitle: "Entre para acompanhar a agenda e definir quando você estará na barbearia." }
+      : { overline: "GESTÃO DA BARBEARIA", title: "Acesso do proprietário", subtitle: "Painel reservado para acompanhar toda a operação." };
+
+  return <div className="access-page">
+    <button className="access-back" onClick={cancel}><Icon name="arrow-left" /> VOLTAR AO SITE</button>
+    <section className="access-card">
+      <div className="access-brand"><img src="/bart-logo.jpg" alt="" /><span>BART DO CORTE</span></div>
+      <small>{copy.overline}</small>
+      <h1>{copy.title}</h1>
+      <p>{copy.subtitle}</p>
+      <form onSubmit={event => { event.preventDefault(); submit(); }}>
+        {mode === "client" ? <>
+          <label>SEU NOME<input autoComplete="name" value={credentials.name} onChange={event => setCredentials({ ...credentials, name: event.target.value })} placeholder="Como podemos te chamar?" /></label>
+          <label>WHATSAPP / TELEFONE<input inputMode="tel" autoComplete="tel" value={credentials.phone} onChange={event => setCredentials({ ...credentials, phone: event.target.value })} placeholder="(21) 99999-9999" /></label>
+        </> : <>
+          <label>NOME DE ACESSO<input autoComplete="username" value={credentials.username} onChange={event => setCredentials({ ...credentials, username: event.target.value })} placeholder={mode === "barber" ? "Seu nome de barbeiro" : "Nome da barbearia"} /></label>
+          <label>SENHA<input type="password" autoComplete="current-password" value={credentials.password} onChange={event => setCredentials({ ...credentials, password: event.target.value })} placeholder="••••" /></label>
+        </>}
+        {error && <div className="access-error" role="alert">{error}</div>}
+        <button className="access-submit" type="submit">{mode === "client" ? "CONTINUAR PARA AGENDAR" : "ENTRAR NO PAINEL"}<Icon name="arrow-right" /></button>
+      </form>
+    </section>
+  </div>;
+}
+
+function Header({ role, session, items, screen, onNavigate, onOpen }: { role: Role; session: Session | null; items: [string, IconName, string][]; screen: Screen; onNavigate: (target: string) => void; onOpen: () => void }) {
+  const initials = session?.name.split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "→";
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -307,7 +453,7 @@ function Header({ role, items, screen, onNavigate, onOpen }: { role: Role; items
         <div><span>BARBEARIA</span><strong>BART DO CORTE</strong><em>Ter–Sex 09–19h · Sáb 09–18h</em></div>
       </div>
       <nav className="desktop-top-nav" aria-label="Navegação para desktop">{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "desktop-top-cta" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><Icon name={icon} /><b>{label}</b></button>)}</nav>
-      <button className="role-button" onClick={onOpen}><span>{roleLabels[role]}</span><b>{role === "admin" ? "AD" : role === "barber" ? "AN" : "BC"}</b></button>
+      <button className="role-button" onClick={onOpen}><span>{session ? `${roleLabels[role]} · ${session.name}` : "Entrar"}</span><b>{initials}</b></button>
     </header>
   );
 }
@@ -326,10 +472,18 @@ const haircutGallery = [
   { image: "/referencia-reflexo.jpg", imagePosition: "center", name: "Reflexo", detail: "Mechas e iluminação", price: 80, duration: "1 h" },
 ];
 
-function ClientHome({ data, openBooking, setScreen }: { data: StoreData; openBooking: () => void; setScreen: (screen: Screen) => void }) {
-  const next = data.appointments.find(item => item.client === "Cliente Demo" && item.status === "confirmed" && item.date >= dateISO());
+function ClientHome({ data, session, openBooking, setScreen }: { data: StoreData; session: Extract<Session, { role: "client" }> | null; openBooking: () => void; setScreen: (screen: Screen) => void }) {
+  const next = session ? data.appointments.find(item => normalizePhone(item.phone) === normalizePhone(session.phone) && item.status === "confirmed" && item.date >= dateISO()) : undefined;
   const service = data.services.find(item => item.id === next?.serviceId);
   const barber = data.barbers.find(item => item.id === next?.barberId);
+  const dayLabels = ["DOMINGO", "SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA", "SÁBADO"];
+  const openingHours = [1, 2, 3, 4, 5, 6, 0].map(dayNumber => {
+    const schedules = data.barbers.filter(item => item.active).flatMap(item => data.availability[item.id]?.filter(day => day.weekday === dayNumber && day.enabled) ?? []);
+    if (!schedules.length) return { label: dayLabels[dayNumber], hours: "FECHADO", closed: true };
+    const start = schedules.map(item => item.start).sort()[0];
+    const end = schedules.map(item => item.end).sort().at(-1);
+    return { label: dayLabels[dayNumber], hours: `${start} – ${end}`, closed: false };
+  });
   return <>
     <section className="client-hero">
       <div className="hero-copy">
@@ -353,26 +507,20 @@ function ClientHome({ data, openBooking, setScreen }: { data: StoreData; openBoo
       <SectionTitle overline="ONDE ESTAMOS" title="Campo Grande · RJ" />
       <div className="map-frame">
         <iframe title="Mapa da Bart do Corte em Campo Grande, Rio de Janeiro" loading="lazy" referrerPolicy="no-referrer-when-downgrade" src="https://www.google.com/maps?q=Bart%20do%20Corte%2C%20Campo%20Grande%2C%20Rio%20de%20Janeiro&output=embed" />
-        <div className="map-label"><b>BART DO CORTE</b><span>Localização aproximada · confirme o endereço</span></div>
+        <div className="map-label"><b>BART DO CORTE</b><span>Campo Grande · Rio de Janeiro</span></div>
       </div>
     </section>
     <section className="contact-section">
       <div className="contact-copy">
-        <small>// CONTATO E LOCALIZAÇÃO</small>
+        <small>{"// CONTATO E LOCALIZAÇÃO"}</small>
         <h2>NOS<br /><span>ENCONTRE</span></h2>
         <dl><div><dt>REGIÃO</dt><dd>Campo Grande · Rio de Janeiro · RJ</dd></div><div><dt>ATENDIMENTO</dt><dd>Agendamento direto pelo aplicativo</dd></div></dl>
-        <p>O endereço exato será exibido aqui assim que for confirmado.</p>
+        <p>Escolha seu barbeiro, veja os horários liberados e reserve direto pelo aplicativo.</p>
       </div>
       <div className="opening-hours">
-        <small>// HORÁRIOS</small>
-        <p>Exemplo visual do MVP · confirme o expediente real</p>
-        <div className="hours-row muted"><span>SEGUNDA</span><b>FECHADO</b></div>
-        <div className="hours-row"><span>TERÇA</span><b>09:00 – 19:00</b></div>
-        <div className="hours-row"><span>QUARTA</span><b>09:00 – 19:00</b></div>
-        <div className="hours-row"><span>QUINTA</span><b>09:00 – 19:00</b></div>
-        <div className="hours-row"><span>SEXTA</span><b>09:00 – 19:00</b></div>
-        <div className="hours-row"><span>SÁBADO</span><b>09:00 – 18:00</b></div>
-        <div className="hours-row muted"><span>DOMINGO</span><b>FECHADO</b></div>
+        <small>{"// HORÁRIOS"}</small>
+        <p>Atualizados conforme a disponibilidade da equipe</p>
+        {openingHours.map(item => <div className={`hours-row${item.closed ? " muted" : ""}`} key={item.label}><span>{item.label}</span><b>{item.hours}</b></div>)}
       </div>
     </section>
     <footer className="site-footer">
@@ -400,100 +548,26 @@ function ClientHome({ data, openBooking, setScreen }: { data: StoreData; openBoo
 }
 
 function LookbookSection({ openBooking }: { openBooking: () => void }) {
-  const sectionRef = useRef<HTMLElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const section = sectionRef.current;
-    const viewport = viewportRef.current;
-    const track = trackRef.current;
-    if (!section || !viewport || !track) return;
-
-    let frame = 0;
-    let sectionStart = 0;
-    let scrollDistance = 1;
-    let horizontalDistance = 0;
-    let stickyTop = 76;
-    let lastProgress = -1;
-    let scrollListening = false;
-
-    const usesNativeMobileTimeline = () => window.innerWidth < 900 && CSS.supports("animation-timeline: view()");
-
-    const measure = () => {
-      stickyTop = window.innerWidth >= 900 ? 88 : 76;
-      sectionStart = window.scrollY + section.getBoundingClientRect().top;
-      const stickyHeight = Math.max(1, window.innerHeight - stickyTop);
-      scrollDistance = Math.max(1, section.offsetHeight - stickyHeight);
-      horizontalDistance = Math.max(0, track.scrollWidth - viewport.clientWidth);
-    };
-
-    const update = () => {
-      frame = 0;
-      const progress = Math.min(1, Math.max(0, (window.scrollY + stickyTop - sectionStart) / scrollDistance));
-      if (progress === lastProgress) return;
-      lastProgress = progress;
-      section.style.setProperty("--look-x", `${-progress * horizontalDistance}px`);
-      section.style.setProperty("--look-progress", String(progress));
-    };
-    const requestUpdate = () => {
-      if (!frame) frame = window.requestAnimationFrame(update);
-    };
-    const startScrollSync = () => {
-      if (scrollListening) return;
-      scrollListening = true;
-      measure();
-      lastProgress = -1;
-      requestUpdate();
-      window.addEventListener("scroll", requestUpdate, { passive: true });
-    };
-    const stopScrollSync = () => {
-      if (!scrollListening) return;
-      scrollListening = false;
-      window.removeEventListener("scroll", requestUpdate);
-      if (frame) window.cancelAnimationFrame(frame);
-      frame = 0;
-      section.style.removeProperty("--look-x");
-      section.style.removeProperty("--look-progress");
-    };
-    const syncMotionMode = () => {
-      if (usesNativeMobileTimeline()) stopScrollSync();
-      else startScrollSync();
-    };
-
-    syncMotionMode();
-    window.addEventListener("resize", syncMotionMode);
-    return () => {
-      window.removeEventListener("resize", syncMotionMode);
-      stopScrollSync();
-    };
-  }, []);
-
-  return <section className="lookbook-section" ref={sectionRef}>
-    <div className="lookbook-pin">
-      <SectionTitle overline="REFERÊNCIAS DE CORTE" title="Inspire seu visual" />
-      <div className="lookbook-viewport" ref={viewportRef}>
-        <div className="lookbook-track" ref={trackRef}>{haircutGallery.map(style => <button className={`look-card${style.image ? "" : " look-card--detail"}`} key={style.name} onClick={openBooking} aria-label={`Agendar ${style.name}`}>
-          {style.image && <img src={style.image} alt={`Referência de ${style.name}`} loading="lazy" decoding="async" style={{ objectPosition: style.imagePosition }} />}
-          <div><h3>{style.name}</h3><p>{style.detail}</p><dl className="look-card-meta"><div><dt>VALOR</dt><dd>{money.format(style.price)}</dd></div><div><dt>DURAÇÃO</dt><dd>{style.duration}</dd></div></dl><b>AGENDAR ESTE ESTILO <Icon name="arrow-right" /></b></div>
-        </button>)}</div>
-      </div>
-      <div className="lookbook-progress" aria-hidden="true"><i /><span>ROLE PARA VER TODOS OS CORTES</span></div>
-    </div>
+  return <section className="lookbook-section">
+    <SectionTitle overline="REFERÊNCIAS DE CORTE" title="Inspire seu visual" />
+    <div className="lookbook-grid">{haircutGallery.map(style => <button className={`look-card${style.image ? "" : " look-card--detail"}`} key={style.name} onClick={openBooking} aria-label={`Agendar ${style.name}`}>
+      {style.image && <img src={style.image} alt={`Referência de ${style.name}`} loading="lazy" decoding="async" style={{ objectPosition: style.imagePosition }} />}
+      <div><h3>{style.name}</h3><p>{style.detail}</p><dl className="look-card-meta"><div><dt>VALOR</dt><dd>{money.format(style.price)}</dd></div><div><dt>DURAÇÃO</dt><dd>{style.duration}</dd></div></dl><b>AGENDAR ESTE ESTILO <Icon name="arrow-right" /></b></div>
+    </button>)}</div>
   </section>;
 }
 
-function BarberHome({ appointments, services, revenue, commission }: { appointments: Appointment[]; services: Map<string, Service>; revenue: number; commission: number }) {
+function BarberHome({ barberName, appointments, services, revenue, commission }: { barberName: string; appointments: Appointment[]; services: Map<string, Service>; revenue: number; commission: number }) {
   return <div className="dashboard-page">
-    <PageIntro overline="BOM TRABALHO, ANDERSON" title="Sua rotina hoje" subtitle={`${appointments.length} horários na agenda`} />
+    <PageIntro overline={`BOM TRABALHO, ${barberName.toUpperCase()}`} title="Sua rotina hoje" subtitle={`${appointments.length} horários na agenda`} />
     <div className="metric-grid"><Metric label="Produção" value={money.format(revenue)} tone="gold" /><Metric label="Sua comissão" value={money.format(commission)} /><Metric label="Atendimentos" value={String(appointments.length)} /><Metric label="Ocupação" value="72%" /></div>
     <SectionTitle overline="AGENDA DE HOJE" title="Próximos clientes" />
-    <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} />)}</div>
+    <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div>
     <div className="goal-card"><div><small>META DO MÊS</small><strong>68%</strong></div><p>Faltam {money.format(640)} para sua meta</p><div><i style={{ width: "68%" }} /></div></div>
   </div>;
 }
 
-function AdminHome({ data, services, revenue, todayAppointments, setScreen, openBooking }: { data: StoreData; services: Map<string, Service>; revenue: number; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void; openBooking: () => void }) {
+function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { data: StoreData; services: Map<string, Service>; revenue: number; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void }) {
   const pending = data.appointments.filter(item => item.status === "completed").reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0) * ((data.barbers.find(barber => barber.id === item.barberId)?.commission ?? 0) / 100), 0);
   const clientCount = new Set(data.appointments.map(item => item.phone)).size;
   const confirmedToday = todayAppointments.filter(item => item.status === "confirmed").length;
@@ -508,15 +582,12 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
   });
 
   return <div className="dashboard-page admin-dashboard">
-    <header className="admin-overview-head">
-      <div><small>PAINEL DO PROPRIETÁRIO</small><h1>Visão geral</h1><p>Acompanhe a operação da Bart do Corte em um só lugar.</p></div>
-      <div className="admin-head-actions"><span><i /> Dados locais atualizados</span><button onClick={openBooking}>NOVO AGENDAMENTO <Icon name="plus" /></button></div>
-    </header>
+    <header className="admin-overview-head"><div><small>PAINEL DO PROPRIETÁRIO</small><h1>Visão geral</h1><p>Acompanhe a operação da Bart do Corte em um só lugar.</p></div></header>
 
     <section className="admin-kpi-grid" aria-label="Indicadores da barbearia">
       <article className="admin-kpi primary"><span>FATURAMENTO REGISTRADO</span><strong>{money.format(revenue)}</strong><p>{completedToday} atendimento{completedToday === 1 ? "" : "s"} concluído{completedToday === 1 ? "" : "s"} hoje</p><i><Icon name="arrow-up-right" /></i></article>
       <article className="admin-kpi"><span>AGENDA DE HOJE</span><strong>{todayAppointments.length}</strong><p>{confirmedToday} confirmados · {completedToday} concluídos</p><i><Icon name="calendar" /></i></article>
-      <article className="admin-kpi"><span>CLIENTES CADASTRADOS</span><strong>{clientCount}</strong><p>Identificados neste navegador</p><i><Icon name="user" /></i></article>
+      <article className="admin-kpi"><span>CLIENTES CADASTRADOS</span><strong>{clientCount}</strong><p>Nomes e contatos registrados</p><i><Icon name="user" /></i></article>
       <article className="admin-kpi"><span>COMISSÕES ESTIMADAS</span><strong>{money.format(pending)}</strong><p>Repasse acumulado da equipe</p><i><Icon name="wallet" /></i></article>
     </section>
 
@@ -524,7 +595,7 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
       <section className="admin-revenue-panel">
         <header><div><small>MOVIMENTO SEMANAL</small><h2>Ritmo da barbearia</h2></div><div className="occupancy-badge"><span>OCUPAÇÃO HOJE</span><b>{occupancy}%</b></div></header>
         <div className="admin-bar-chart">{weeklyMovement.map((height, index) => <div className="admin-bar-column" key={weekdays[index]}><span>{height}%</span><i><b style={{ height: `${height}%` }} /></i><small>{weekdays[index]}</small></div>)}</div>
-        <footer><span><i className="confirmed-dot" /> Horários ocupados</span><p>Indicadores calculados com os dados de demonstração locais.</p></footer>
+        <footer><span><i className="confirmed-dot" /> Horários ocupados</span><p>Indicadores da agenda e dos atendimentos registrados.</p></footer>
       </section>
 
       <section className="admin-agenda-panel">
@@ -532,7 +603,7 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
         <div className="admin-agenda-list">{todayAppointments.length ? todayAppointments.slice(0, 5).map(item => {
           const barber = data.barbers.find(current => current.id === item.barberId);
           return <article key={item.id}><time>{item.time}</time><div><b>{item.client}</b><span>{services.get(item.serviceId)?.name} · {barber?.name}</span></div><em className={item.status}>{statusLabels[item.status]}</em></article>;
-        }) : <EmptyState title="Agenda livre hoje" text="Use o botão de novo agendamento para reservar um horário." />}</div>
+        }) : <EmptyState title="Agenda livre hoje" text="Nenhum cliente marcou horário para esta data." />}</div>
       </section>
     </div>
 
@@ -544,18 +615,23 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen, open
       </article>)}</div>
     </section>
 
-    <section className="admin-quick-actions"><button onClick={openBooking}><span><Icon name="plus" /></span><div><b>Novo agendamento</b><small>Adicionar cliente à agenda</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("agenda")}><span><Icon name="calendar" /></span><div><b>Agenda completa</b><small>Consultar horários da equipe</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("management")}><span><Icon name="grid" /></span><div><b>Serviços e comissões</b><small>Configurar operação</small></div><i><Icon name="arrow-right" /></i></button></section>
+    <section className="admin-quick-actions"><button onClick={() => setScreen("agenda")}><span><Icon name="calendar" /></span><div><b>Agenda completa</b><small>Consultar horários da equipe</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("management")}><span><Icon name="grid" /></span><div><b>Serviços e comissões</b><small>Configurar operação</small></div><i><Icon name="arrow-right" /></i></button></section>
   </div>;
 }
 
-function AgendaScreen({ role, data, services, barbers, selectedDate, setSelectedDate, updateAppointment, toggleBlock }: { role: Role; data: StoreData; services: Map<string, Service>; barbers: Map<string, Barber>; selectedDate: string; setSelectedDate: (date: string) => void; updateAppointment: (id: string, status: Status, paid?: boolean) => void; toggleBlock: (time: string) => void }) {
+function AgendaScreen({ role, session, barberId, data, services, barbers, selectedDate, setSelectedDate, updateAppointment, toggleBlock }: { role: Role; session: Session | null; barberId: string | null; data: StoreData; services: Map<string, Service>; barbers: Map<string, Barber>; selectedDate: string; setSelectedDate: (date: string) => void; updateAppointment: (id: string, status: Status, paid?: boolean) => void; toggleBlock: (time: string) => void }) {
   const dates = Array.from({ length: 7 }, (_, index) => dateISO(index));
-  const dayItems = data.appointments.filter(item => item.date === selectedDate && (role !== "barber" || item.barberId === "anderson")).sort((a, b) => a.time.localeCompare(b.time));
+  const dayItems = data.appointments.filter(item => {
+    if (item.date !== selectedDate) return false;
+    if (role === "barber") return item.barberId === barberId;
+    if (role === "client" && session?.role === "client") return normalizePhone(item.phone) === normalizePhone(session.phone);
+    return role === "admin";
+  }).sort((a, b) => a.time.localeCompare(b.time));
   return <div className="dashboard-page agenda-page">
-    <PageIntro overline={role === "client" ? "MEUS HORÁRIOS" : "AGENDA DA EQUIPE"} title="Agenda" subtitle={formatDate(selectedDate)} />
+    <PageIntro overline={role === "client" ? "MEUS HORÁRIOS" : role === "barber" ? "MINHA AGENDA" : "AGENDA DA EQUIPE"} title="Agenda" subtitle={formatDate(selectedDate)} />
     <div className="date-strip">{dates.map(date => <button key={date} className={date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(date)}><span>{weekday(date)}</span><b>{date.slice(-2)}</b></button>)}</div>
     {role === "barber" && <div className="block-row"><span>Bloqueio rápido:</span>{["12:00", "12:30", "18:00"].map(time => <button key={time} onClick={() => toggleBlock(time)}>{time}</button>)}</div>}
-    <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{services.get(item.serviceId)?.name}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(services.get(item.serviceId)?.price ?? 0)}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Escolha outra data ou crie um novo agendamento." />}</div>
+    <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{services.get(item.serviceId)?.name}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(services.get(item.serviceId)?.price ?? 0)}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Não há agendamentos para esta data." />}</div>
   </div>;
 }
 
@@ -563,31 +639,49 @@ function TeamScreen({ data, openBooking }: { data: StoreData; openBooking: () =>
   return <div className="dashboard-page"><PageIntro overline="NOSSA EQUIPE" title="Escolha seu barbeiro" subtitle="Profissionais da Bart do Corte" /><div className="team-grid">{data.barbers.filter(item => item.active).map((item, index) => <article key={item.id}><div className="barber-avatar">{item.name.slice(0, 1)}<span>0{index + 1}</span></div><small>BARBEIRO</small><h3>{item.name}</h3><p>{item.specialty}</p><button onClick={openBooking}>VER HORÁRIOS <Icon name="arrow-right" /></button></article>)}</div></div>;
 }
 
+function AvailabilityScreen({ barberName, days, updateDay }: { barberName: string; days: WorkDay[]; updateDay: (weekdayNumber: number, changes: Partial<WorkDay>) => void }) {
+  const labels = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+  return <div className="dashboard-page availability-page">
+    <PageIntro overline={`DISPONIBILIDADE DE ${barberName.toUpperCase()}`} title="Meus horários" subtitle="Somente estes dias e faixas aparecerão para os clientes" />
+    <div className="availability-notice"><Icon name="calendar" /><div><b>Você controla sua agenda</b><p>Dia fechado fica cinza no agendamento e não recebe novos horários.</p></div></div>
+    <div className="availability-list">{[...days].sort((a, b) => ((a.weekday + 6) % 7) - ((b.weekday + 6) % 7)).map(day => <article key={day.weekday} className={day.enabled ? "enabled" : ""}>
+      <div className="availability-day"><button className={day.enabled ? "schedule-toggle active" : "schedule-toggle"} onClick={() => updateDay(day.weekday, { enabled: !day.enabled })} aria-label={`${day.enabled ? "Fechar" : "Abrir"} ${labels[day.weekday]}`}><i /></button><div><b>{labels[day.weekday]}</b><span>{day.enabled ? "Disponível para agendamentos" : "Indisponível"}</span></div></div>
+      <div className="availability-hours"><label>ENTRADA<input type="time" value={day.start} disabled={!day.enabled} onChange={event => updateDay(day.weekday, { start: event.target.value })} /></label><span>ATÉ</span><label>SAÍDA<input type="time" value={day.end} disabled={!day.enabled} min={day.start} onChange={event => updateDay(day.weekday, { end: event.target.value })} /></label></div>
+    </article>)}</div>
+  </div>;
+}
+
 function EarningsScreen({ appointments, services, commission, revenue }: { appointments: Appointment[]; services: Map<string, Service>; commission: number; revenue: number }) {
-  return <div className="dashboard-page"><PageIntro overline="TRANSPARÊNCIA" title="Meus ganhos" subtitle="Produção e comissão acumulada" /><div className="earnings-hero"><small>VALOR A RECEBER</small><strong>{money.format(commission)}</strong><p>50% sobre {money.format(revenue)} produzidos</p></div><div className="financial-list"><div><span>Já recebido</span><b>{money.format(commission * .6)}</b></div><div><span>Pendente</span><b className="gold-text">{money.format(commission * .4)}</b></div><div><span>Atendimentos</span><b>{appointments.length}</b></div></div><SectionTitle overline="HISTÓRICO" title="Últimos atendimentos" /><div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} />)}</div></div>;
+  return <div className="dashboard-page"><PageIntro overline="TRANSPARÊNCIA" title="Meus ganhos" subtitle="Produção e comissão acumulada" /><div className="earnings-hero"><small>VALOR A RECEBER</small><strong>{money.format(commission)}</strong><p>50% sobre {money.format(revenue)} produzidos</p></div><div className="financial-list"><div><span>Já recebido</span><b>{money.format(commission * .6)}</b></div><div><span>Pendente</span><b className="gold-text">{money.format(commission * .4)}</b></div><div><span>Atendimentos</span><b>{appointments.length}</b></div></div><SectionTitle overline="HISTÓRICO" title="Últimos atendimentos" /><div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div></div>;
 }
 
 function ManagementScreen({ data, setData, newService, setNewService, addService }: { data: StoreData; setData: (updater: (current: StoreData) => StoreData) => void; newService: { name: string; price: string; duration: string }; setNewService: (value: { name: string; price: string; duration: string }) => void; addService: () => void }) {
-  return <div className="dashboard-page"><PageIntro overline="CONFIGURAÇÃO LOCAL" title="Gestão" subtitle="Serviços, equipe e comissões" /><SectionTitle overline="CATÁLOGO" title="Serviços" /><div className="manage-list">{data.services.map(item => <article key={item.id}><div><b>{item.name}</b><span>{item.duration} min · {money.format(item.price)}</span></div><button className={item.active ? "toggle active" : "toggle"} aria-label={`Ativar ou desativar ${item.name}`} onClick={() => setData(current => ({ ...current, services: current.services.map(service => service.id === item.id ? { ...service, active: !service.active } : service) }))}><i /></button></article>)}</div><div className="add-form"><small>NOVO SERVIÇO</small><input placeholder="Nome" value={newService.name} onChange={event => setNewService({ ...newService, name: event.target.value })} /><div><input inputMode="decimal" placeholder="Preço" value={newService.price} onChange={event => setNewService({ ...newService, price: event.target.value })} /><input inputMode="numeric" placeholder="Minutos" value={newService.duration} onChange={event => setNewService({ ...newService, duration: event.target.value })} /></div><button onClick={addService}>CADASTRAR SERVIÇO</button></div><SectionTitle overline="EQUIPE" title="Comissões" /><div className="manage-list">{data.barbers.map(item => <article key={item.id}><div><b>{item.name}</b><span>{item.specialty}</span></div><label><input type="number" min="0" max="100" value={item.commission} onChange={event => setData(current => ({ ...current, barbers: current.barbers.map(barber => barber.id === item.id ? { ...barber, commission: Number(event.target.value) } : barber) }))} />%</label></article>)}</div></div>;
+  return <div className="dashboard-page"><PageIntro overline="CONFIGURAÇÃO" title="Gestão" subtitle="Serviços, equipe e comissões" /><SectionTitle overline="CATÁLOGO" title="Serviços" /><div className="manage-list">{data.services.map(item => <article key={item.id}><div><b>{item.name}</b><span>{item.duration} min · {money.format(item.price)}</span></div><button className={item.active ? "toggle active" : "toggle"} aria-label={`Ativar ou desativar ${item.name}`} onClick={() => setData(current => ({ ...current, services: current.services.map(service => service.id === item.id ? { ...service, active: !service.active } : service) }))}><i /></button></article>)}</div><div className="add-form"><small>NOVO SERVIÇO</small><input placeholder="Nome" value={newService.name} onChange={event => setNewService({ ...newService, name: event.target.value })} /><div><input inputMode="decimal" placeholder="Preço" value={newService.price} onChange={event => setNewService({ ...newService, price: event.target.value })} /><input inputMode="numeric" placeholder="Minutos" value={newService.duration} onChange={event => setNewService({ ...newService, duration: event.target.value })} /></div><button onClick={addService}>CADASTRAR SERVIÇO</button></div><SectionTitle overline="EQUIPE" title="Comissões" /><div className="manage-list">{data.barbers.map(item => <article key={item.id}><div><b>{item.name}</b><span>{item.specialty}</span></div><label><input type="number" min="0" max="100" value={item.commission} onChange={event => setData(current => ({ ...current, barbers: current.barbers.map(barber => barber.id === item.id ? { ...barber, commission: Number(event.target.value) } : barber) }))} />%</label></article>)}</div></div>;
 }
 
-function ProfileScreen({ role, selectRole, exportBackup, importBackup, resetData }: { role: Role; selectRole: (role: Role) => void; exportBackup: () => void; importBackup: (event: ChangeEvent<HTMLInputElement>) => void; resetData: () => void }) {
-  return <div className="dashboard-page"><PageIntro overline="CONTA LOCAL" title="Perfil e dados" subtitle="Este MVP salva tudo neste navegador" /><div className="profile-card"><div className="large-avatar">{role === "admin" ? "AD" : role === "barber" ? "AN" : "CD"}</div><small>ACESSO ATUAL</small><h2>{roleLabels[role]}</h2><p>{role === "client" ? "Cliente Demo" : role === "barber" ? "Anderson" : "Administrador Bart do Corte"}</p></div><SectionTitle overline="DEMONSTRAÇÃO" title="Trocar de acesso" /><div className="role-grid">{(["client", "barber", "admin"] as Role[]).map(item => <button key={item} className={role === item ? "active" : ""} onClick={() => selectRole(item)}><span><Icon name={item === "client" ? "user" : item === "barber" ? "scissors" : "grid"} /></span><b>{roleLabels[item]}</b></button>)}</div><SectionTitle overline="SEGURANÇA LOCAL" title="Backup" /><div className="backup-actions"><button onClick={exportBackup}>EXPORTAR DADOS <Icon name="download" /></button><label>IMPORTAR BACKUP <Icon name="upload" /><input type="file" accept="application/json" onChange={importBackup} /></label><button className="danger" onClick={resetData}>RESTAURAR DEMONSTRAÇÃO</button></div><div className="local-warning"><b>Somente neste dispositivo</b><p>Os dados não são sincronizados com outros celulares. Exporte um backup antes de limpar o navegador.</p></div></div>;
+function ProfileScreen({ session, logout }: { session: Session; logout: () => void }) {
+  const initials = session.name.split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
+  return <div className="dashboard-page"><PageIntro overline="MINHA CONTA" title="Perfil e acesso" subtitle="Dados do seu perfil" /><div className="profile-card"><div className="large-avatar">{initials}</div><small>ACESSO ATUAL</small><h2>{roleLabels[session.role]}</h2><p>{session.name}</p>{session.role === "client" && <span>{session.phone}</span>}</div><button className="logout-button" onClick={logout}>SAIR DESTE ACESSO <Icon name="arrow-right" /></button></div>;
 }
 
-function BookingSheet({ step, setStep, booking, setBooking, data, availableTimes, close, confirm }: { step: number; setStep: (step: number) => void; booking: { serviceId: string; barberId: string; date: string; time: string }; setBooking: (value: { serviceId: string; barberId: string; date: string; time: string }) => void; data: StoreData; availableTimes: string[]; close: () => void; confirm: () => void }) {
+function BookingSheet({ step, setStep, booking, setBooking, data, timeSlots, close, confirm }: { step: number; setStep: (step: number) => void; booking: { serviceId: string; barberId: string; date: string; time: string }; setBooking: (value: { serviceId: string; barberId: string; date: string; time: string }) => void; data: StoreData; timeSlots: { time: string; available: boolean }[]; close: () => void; confirm: () => void }) {
   const dates = Array.from({ length: 10 }, (_, index) => dateISO(index + 1));
   const service = data.services.find(item => item.id === booking.serviceId);
   const barber = data.barbers.find(item => item.id === booking.barberId);
-  return <div className="sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close(); }}><section className="booking-sheet"><header><div><small>NOVO AGENDAMENTO</small><b>Etapa {step} de 4</b></div><button onClick={close} aria-label="Fechar"><Icon name="close" /></button></header><div className="steps"><i className={step >= 1 ? "done" : ""} /><i className={step >= 2 ? "done" : ""} /><i className={step >= 3 ? "done" : ""} /><i className={step >= 4 ? "done" : ""} /></div>{step === 1 && <div className="sheet-content"><h2>Qual serviço?</h2><div className="choice-list">{data.services.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, serviceId: item.id }); setStep(2); }}><div><b>{item.name}</b><span>{item.description} · {item.duration} min</span></div><strong>{money.format(item.price)}</strong></button>)}</div></div>}{step === 2 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(1)}><Icon name="arrow-left" />Voltar</button><h2>Com quem?</h2><div className="choice-list barber-choices">{data.barbers.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, barberId: item.id }); setStep(3); }}><i>{item.name[0]}</i><div><b>{item.name}</b><span>{item.specialty}</span></div><strong><Icon name="arrow-right" /></strong></button>)}</div></div>}{step === 3 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(2)}><Icon name="arrow-left" />Voltar</button><h2>Escolha o dia</h2><div className="booking-dates">{dates.map(date => <button key={date} className={booking.date === date ? "active" : ""} onClick={() => { setBooking({ ...booking, date, time: "" }); setStep(4); }}><span>{weekday(date)}</span><b>{date.slice(-2)}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></button>)}</div></div>}{step === 4 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(3)}><Icon name="arrow-left" />Voltar</button><h2>Melhor horário</h2><p className="booking-summary">{service?.name} com {barber?.name} · {formatDate(booking.date)}</p><div className="time-grid">{availableTimes.map(time => <button key={time} className={booking.time === time ? "active" : ""} onClick={() => setBooking({ ...booking, time })}>{time}</button>)}</div>{!availableTimes.length && <EmptyState title="Sem horários livres" text="Escolha outra data para continuar." />}<button className="confirm-button" disabled={!booking.time} onClick={confirm}>CONFIRMAR AGENDAMENTO <Icon name="arrow-right" /></button></div>}</section></div>;
+  const dayIsAvailable = (date: string) => {
+    const day = new Date(`${date}T12:00:00`).getDay();
+    return Boolean(data.availability[booking.barberId]?.find(item => item.weekday === day)?.enabled);
+  };
+  const hasAvailableTime = timeSlots.some(slot => slot.available);
+  return <div className="sheet-backdrop"><section className="booking-sheet"><header><div><small>NOVO AGENDAMENTO</small><b>Etapa {step} de 4</b></div><button onClick={close} aria-label="Fechar"><Icon name="close" /></button></header><div className="steps"><i className={step >= 1 ? "done" : ""} /><i className={step >= 2 ? "done" : ""} /><i className={step >= 3 ? "done" : ""} /><i className={step >= 4 ? "done" : ""} /></div>{step === 1 && <div className="sheet-content"><h2>Qual serviço?</h2><div className="choice-list">{data.services.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, serviceId: item.id }); setStep(2); }}><div><b>{item.name}</b><span>{item.description} · {item.duration} min</span></div><strong>{money.format(item.price)}</strong></button>)}</div></div>}{step === 2 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(1)}><Icon name="arrow-left" />Voltar</button><h2>Com quem?</h2><div className="choice-list barber-choices">{data.barbers.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, barberId: item.id, date: "", time: "" }); setStep(3); }}><i>{item.name[0]}</i><div><b>{item.name}</b><span>{item.specialty}</span></div><strong><Icon name="arrow-right" /></strong></button>)}</div></div>}{step === 3 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(2)}><Icon name="arrow-left" />Voltar</button><h2>Escolha o dia</h2><p className="availability-hint">Dias em cinza não foram liberados por {barber?.name}.</p><div className="booking-dates">{dates.map(date => { const available = dayIsAvailable(date); return <button key={date} disabled={!available} className={`${booking.date === date ? "active" : ""} ${available ? "" : "unavailable"}`} onClick={() => { setBooking({ ...booking, date, time: "" }); setStep(4); }}><span>{weekday(date)}</span><b>{date.slice(-2)}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></button>; })}</div></div>}{step === 4 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(3)}><Icon name="arrow-left" />Voltar</button><h2>Melhor horário</h2><p className="booking-summary">{service?.name} com {barber?.name} · {formatDate(booking.date)}</p><p className="availability-hint">Horários em cinza estão fora do expediente ou já foram ocupados.</p><div className="time-grid">{timeSlots.map(slot => <button key={slot.time} disabled={!slot.available} className={`${booking.time === slot.time ? "active" : ""} ${slot.available ? "" : "unavailable"}`} onClick={() => setBooking({ ...booking, time: slot.time })}>{slot.time}</button>)}</div>{!hasAvailableTime && <EmptyState title="Sem horários livres" text="Escolha outra data para continuar." />}<button className="confirm-button" disabled={!booking.time} onClick={confirm}>CONFIRMAR AGENDAMENTO <Icon name="arrow-right" /></button></div>}</section></div>;
 }
 
 function BottomNav({ items, screen, onNavigate }: { items: [string, IconName, string][]; screen: Screen; onNavigate: (target: string) => void }) {
-  return <nav className="bottom-nav" aria-label="Navegação principal">{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "nav-plus" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><span><Icon name={icon} /></span>{target !== "plus" && label}</button>)}</nav>;
+  return <nav className="bottom-nav" aria-label="Navegação principal" style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}>{items.map(([target, icon, label]) => <button key={target} className={`${target === "plus" ? "nav-plus" : ""} ${screen === target ? "active" : ""}`} onClick={() => onNavigate(target)}><span><Icon name={icon} /></span>{target !== "plus" && label}</button>)}</nav>;
 }
 
 function SectionTitle({ title, action, onAction }: { overline: string; title: string; action?: string; onAction?: () => void }) { return <div className="section-heading"><h2>{title}</h2>{action && <button onClick={onAction}>{action}</button>}</div>; }
 function PageIntro({ title, subtitle }: { overline: string; title: string; subtitle: string }) { return <div className="page-intro"><h1>{title}</h1><p>{subtitle}</p></div>; }
 function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) { return <article className={`metric ${tone ?? ""}`}><span>{label}</span><b>{value}</b></article>; }
-function CompactAppointment({ item, service, barber }: { item: Appointment; service?: Service; barber?: string }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{service?.name}</b><span>{barber || item.client}</span></div><strong className={`dot ${item.status}`} aria-label={statusLabels[item.status]} /></article>; }
+function CompactAppointment({ item, service, barber, showPhone = false }: { item: Appointment; service?: Service; barber?: string; showPhone?: boolean }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{service?.name}</b><span>{barber || (showPhone ? `${item.client} · ${item.phone}` : item.client)}</span></div><strong className={`dot ${item.status}`} aria-label={statusLabels[item.status]} /></article>; }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Icon name="scissors" /></span><b>{title}</b><p>{text}</p></div>; }
