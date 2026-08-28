@@ -35,7 +35,11 @@ npm run build:hostgator
 Os arquivos prontos para envio são gerados em `hostgator-dist/`. Essa pasta não
 é versionada porque pode ser recriada a qualquer momento pelo comando acima.
 
-## Observação sobre os dados
+## Dados e Supabase
 
-Este é um MVP sem banco de dados. Agendamentos e configurações ficam disponíveis
-apenas no navegador e no dispositivo em que foram criados.
+A interface ainda salva dados no `localStorage`. A estrutura inicial do Supabase
+já está preparada em `supabase/migrations/`, com catálogo, equipe, expediente,
+bloqueios, clientes, agendamentos, RLS e dados iniciais.
+
+Ela ainda não foi aplicada porque não existe um projeto Supabase específico da
+barbearia. Consulte `supabase/README.md` antes de conectar o frontend.

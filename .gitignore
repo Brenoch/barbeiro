@@ -37,6 +37,7 @@ yarn-error.log*
 
 /dist/
 /hostgator-dist/
+/barbeiro-hostgator.zip
 /.wrangler/
 /outputs/
 /work/

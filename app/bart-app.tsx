@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { finalizeStartedAppointments } from "./appointment-automation";
+import { calculateRevenue } from "./revenue";
 
 type Role = "client" | "barber" | "admin";
 type Screen = "home" | "agenda" | "team" | "availability" | "management" | "profile" | "access";
@@ -41,6 +43,7 @@ type Appointment = {
   status: Status;
   paid: boolean;
   paymentMethod?: "Pix" | "Dinheiro" | "Débito" | "Crédito";
+  autoCompletedAt?: string;
 };
 
 type WorkDay = {
@@ -194,6 +197,32 @@ export default function BartApp() {
   }, [data, portal, session, ready]);
 
   useEffect(() => {
+    if (!ready) return;
+
+    const finalizeElapsed = () => {
+      setData(current => {
+        const appointments = finalizeStartedAppointments(current.appointments);
+        return appointments === current.appointments ? current : { ...current, appointments };
+      });
+    };
+
+    const finalizeWhenVisible = () => {
+      if (document.visibilityState === "visible") finalizeElapsed();
+    };
+
+    finalizeElapsed();
+    const timer = window.setInterval(finalizeElapsed, 15_000);
+    window.addEventListener("focus", finalizeElapsed);
+    document.addEventListener("visibilitychange", finalizeWhenVisible);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", finalizeElapsed);
+      document.removeEventListener("visibilitychange", finalizeWhenVisible);
+    };
+  }, [ready]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 2600);
     return () => window.clearTimeout(timer);
@@ -202,10 +231,12 @@ export default function BartApp() {
   const services = useMemo(() => new Map(data.services.map(item => [item.id, item])), [data.services]);
   const barbers = useMemo(() => new Map(data.barbers.map(item => [item.id, item])), [data.barbers]);
   const completed = data.appointments.filter(item => item.status === "completed");
-  const revenue = completed.reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
-  const barberRevenue = completed.filter(item => item.barberId === currentBarberId).reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
-  const barberCommission = barberRevenue * ((barbers.get(currentBarberId ?? "")?.commission ?? 0) / 100);
-  const todayAppointments = data.appointments.filter(item => item.date === dateISO() && item.status !== "cancelled");
+  const currentDate = dateISO();
+  const revenue = calculateRevenue(data.appointments, services, currentDate);
+  const barberAppointments = data.appointments.filter(item => item.barberId === currentBarberId);
+  const barberRevenue = calculateRevenue(barberAppointments, services, currentDate);
+  const barberCommission = barberRevenue.month * ((barbers.get(currentBarberId ?? "")?.commission ?? 0) / 100);
+  const todayAppointments = data.appointments.filter(item => item.date === currentDate && item.status !== "cancelled");
 
   const timeSlots = useMemo(() => {
     const result: { time: string; available: boolean }[] = [];
@@ -389,7 +420,7 @@ export default function BartApp() {
             {screen === "agenda" && <AgendaScreen role={role} session={session} barberId={currentBarberId} data={data} services={services} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} toggleBlock={toggleBlock} />}
             {screen === "team" && <TeamScreen data={data} openBooking={requestBooking} />}
             {screen === "availability" && role === "barber" && currentBarberId && <AvailabilityScreen barberName={session?.name ?? "Barbeiro"} days={data.availability[currentBarberId] ?? defaultWeek({})} updateDay={updateAvailability} />}
-            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} services={services} commission={barberCommission} revenue={barberRevenue} />}
+            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} services={services} commission={barberCommission} revenue={barberRevenue.month} />}
             {screen === "management" && role === "admin" && <ManagementScreen data={data} setData={setData} newService={newService} setNewService={setNewService} addService={addService} />}
             {screen === "profile" && session && <ProfileScreen session={session} logout={logout} />}
           </>}
@@ -557,19 +588,19 @@ function LookbookSection({ openBooking }: { openBooking: () => void }) {
   </section>;
 }
 
-function BarberHome({ barberName, appointments, services, revenue, commission }: { barberName: string; appointments: Appointment[]; services: Map<string, Service>; revenue: number; commission: number }) {
+function BarberHome({ barberName, appointments, services, revenue, commission }: { barberName: string; appointments: Appointment[]; services: Map<string, Service>; revenue: { today: number; month: number }; commission: number }) {
   return <div className="dashboard-page">
     <PageIntro overline={`BOM TRABALHO, ${barberName.toUpperCase()}`} title="Sua rotina hoje" subtitle={`${appointments.length} horários na agenda`} />
-    <div className="metric-grid"><Metric label="Produção" value={money.format(revenue)} tone="gold" /><Metric label="Sua comissão" value={money.format(commission)} /><Metric label="Atendimentos" value={String(appointments.length)} /><Metric label="Ocupação" value="72%" /></div>
+    <div className="metric-grid"><Metric label="Produção hoje" value={money.format(revenue.today)} tone="gold" /><Metric label="Produção no mês" value={money.format(revenue.month)} /><Metric label="Comissão no mês" value={money.format(commission)} /><Metric label="Agenda hoje" value={String(appointments.length)} /></div>
     <SectionTitle overline="AGENDA DE HOJE" title="Próximos clientes" />
     <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div>
     <div className="goal-card"><div><small>META DO MÊS</small><strong>68%</strong></div><p>Faltam {money.format(640)} para sua meta</p><div><i style={{ width: "68%" }} /></div></div>
   </div>;
 }
 
-function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { data: StoreData; services: Map<string, Service>; revenue: number; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void }) {
-  const pending = data.appointments.filter(item => item.status === "completed").reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0) * ((data.barbers.find(barber => barber.id === item.barberId)?.commission ?? 0) / 100), 0);
-  const clientCount = new Set(data.appointments.map(item => item.phone)).size;
+function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { data: StoreData; services: Map<string, Service>; revenue: { today: number; month: number }; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void }) {
+  const currentMonth = dateISO().slice(0, 7);
+  const pending = data.appointments.filter(item => item.status === "completed" && item.date.startsWith(`${currentMonth}-`)).reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0) * ((data.barbers.find(barber => barber.id === item.barberId)?.commission ?? 0) / 100), 0);
   const confirmedToday = todayAppointments.filter(item => item.status === "confirmed").length;
   const completedToday = todayAppointments.filter(item => item.status === "completed").length;
   const occupancy = Math.min(100, Math.round((todayAppointments.length / 10) * 100));
@@ -585,10 +616,10 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { 
     <header className="admin-overview-head"><div><small>PAINEL DO PROPRIETÁRIO</small><h1>Visão geral</h1><p>Acompanhe a operação da Bart do Corte em um só lugar.</p></div></header>
 
     <section className="admin-kpi-grid" aria-label="Indicadores da barbearia">
-      <article className="admin-kpi primary"><span>FATURAMENTO REGISTRADO</span><strong>{money.format(revenue)}</strong><p>{completedToday} atendimento{completedToday === 1 ? "" : "s"} concluído{completedToday === 1 ? "" : "s"} hoje</p><i><Icon name="arrow-up-right" /></i></article>
+      <article className="admin-kpi primary"><span>FATURAMENTO DO MÊS</span><strong>{money.format(revenue.month)}</strong><p>Somente atendimentos concluídos</p><i><Icon name="arrow-up-right" /></i></article>
+      <article className="admin-kpi"><span>FATURAMENTO DE HOJE</span><strong>{money.format(revenue.today)}</strong><p>{completedToday} atendimento{completedToday === 1 ? "" : "s"} concluído{completedToday === 1 ? "" : "s"}</p><i><Icon name="wallet" /></i></article>
       <article className="admin-kpi"><span>AGENDA DE HOJE</span><strong>{todayAppointments.length}</strong><p>{confirmedToday} confirmados · {completedToday} concluídos</p><i><Icon name="calendar" /></i></article>
-      <article className="admin-kpi"><span>CLIENTES CADASTRADOS</span><strong>{clientCount}</strong><p>Nomes e contatos registrados</p><i><Icon name="user" /></i></article>
-      <article className="admin-kpi"><span>COMISSÕES ESTIMADAS</span><strong>{money.format(pending)}</strong><p>Repasse acumulado da equipe</p><i><Icon name="wallet" /></i></article>
+      <article className="admin-kpi"><span>COMISSÕES DO MÊS</span><strong>{money.format(pending)}</strong><p>Repasse estimado da equipe</p><i><Icon name="user" /></i></article>
     </section>
 
     <div className="admin-main-grid">
@@ -631,7 +662,7 @@ function AgendaScreen({ role, session, barberId, data, services, barbers, select
     <PageIntro overline={role === "client" ? "MEUS HORÁRIOS" : role === "barber" ? "MINHA AGENDA" : "AGENDA DA EQUIPE"} title="Agenda" subtitle={formatDate(selectedDate)} />
     <div className="date-strip">{dates.map(date => <button key={date} className={date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(date)}><span>{weekday(date)}</span><b>{date.slice(-2)}</b></button>)}</div>
     {role === "barber" && <div className="block-row"><span>Bloqueio rápido:</span>{["12:00", "12:30", "18:00"].map(time => <button key={time} onClick={() => toggleBlock(time)}>{time}</button>)}</div>}
-    <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{services.get(item.serviceId)?.name}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(services.get(item.serviceId)?.price ?? 0)}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Não há agendamentos para esta data." />}</div>
+    <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{services.get(item.serviceId)?.name}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(services.get(item.serviceId)?.price ?? 0)}</small>}{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Não há agendamentos para esta data." />}</div>
   </div>;
 }
 
@@ -683,5 +714,5 @@ function BottomNav({ items, screen, onNavigate }: { items: [string, IconName, st
 function SectionTitle({ title, action, onAction }: { overline: string; title: string; action?: string; onAction?: () => void }) { return <div className="section-heading"><h2>{title}</h2>{action && <button onClick={onAction}>{action}</button>}</div>; }
 function PageIntro({ title, subtitle }: { overline: string; title: string; subtitle: string }) { return <div className="page-intro"><h1>{title}</h1><p>{subtitle}</p></div>; }
 function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) { return <article className={`metric ${tone ?? ""}`}><span>{label}</span><b>{value}</b></article>; }
-function CompactAppointment({ item, service, barber, showPhone = false }: { item: Appointment; service?: Service; barber?: string; showPhone?: boolean }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{service?.name}</b><span>{barber || (showPhone ? `${item.client} · ${item.phone}` : item.client)}</span></div><strong className={`dot ${item.status}`} aria-label={statusLabels[item.status]} /></article>; }
+function CompactAppointment({ item, service, barber, showPhone = false }: { item: Appointment; service?: Service; barber?: string; showPhone?: boolean }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{service?.name}</b><span>{barber || (showPhone ? `${item.client} · ${item.phone}` : item.client)}</span>{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}</div><strong className={`dot ${item.status}`} aria-label={`${statusLabels[item.status]}${item.paid ? ", pago" : ""}`} /></article>; }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Icon name="scissors" /></span><b>{title}</b><p>{text}</p></div>; }
