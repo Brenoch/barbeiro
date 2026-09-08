@@ -1,16 +1,17 @@
 "use client";
-
-import { useEffect, useMemo, useState } from "react";
-import { finalizeStartedAppointments } from "./appointment-automation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, ApiError, type ApiAccount, type ApiDevice, type Bootstrap } from "./api-client";
+import { saveToCalendar, type CalendarEvent } from "./calendar";
+import { ACCEPTED_PHOTO_TYPES, PhotoError, prepareBarberPhoto } from "./photo";
 import { calculateRevenue } from "./revenue";
 
 type Role = "client" | "barber" | "admin";
-type Screen = "home" | "agenda" | "team" | "availability" | "management" | "profile" | "access";
+type Screen = "home" | "agenda" | "team" | "availability" | "management" | "profile" | "access" | "security";
 type Status = "confirmed" | "completed" | "cancelled" | "noshow";
-type IconName = "home" | "calendar" | "plus" | "scissors" | "user" | "grid" | "wallet" | "arrow-right" | "arrow-left" | "arrow-up-right" | "check" | "close" | "download" | "upload";
+type IconName = "home" | "calendar" | "plus" | "scissors" | "user" | "grid" | "wallet" | "arrow-right" | "arrow-left" | "arrow-up-right" | "check" | "close" | "download" | "lock";
 
 const iconPaths: Record<IconName, React.ReactNode> = {
-  home: <><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M9 21v-6h6v6" /></>, calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>, plus: <path d="M12 5v14M5 12h14" />, scissors: <><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="m8.6 7.5 10.4 9M8.6 16.5 19 7.5" /></>, user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4 3.5-6 8-6s7.2 2 8 6" /></>, grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>, wallet: <><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H19a1 1 0 0 1 1 1v2H6.5A2.5 2.5 0 0 0 4 10.5v7A2.5 2.5 0 0 0 6.5 20H20v-3" /><path d="M20 10h-5a2 2 0 0 0 0 4h5z" /></>, "arrow-right": <path d="M5 12h14m-6-6 6 6-6 6" />, "arrow-left": <path d="M19 12H5m6 6-6-6 6-6" />, "arrow-up-right": <path d="M7 17 17 7m-7 0h7v7" />, check: <path d="m5 12 4.5 4.5L19 7" />, close: <path d="m6 6 12 12M18 6 6 18" />, download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />, upload: <path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14" />,
+  home: <><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M9 21v-6h6v6" /></>, calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>, plus: <path d="M12 5v14M5 12h14" />, scissors: <><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="m8.6 7.5 10.4 9M8.6 16.5 19 7.5" /></>, user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4 3.5-6 8-6s7.2 2 8 6" /></>, grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>, wallet: <><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H19a1 1 0 0 1 1 1v2H6.5A2.5 2.5 0 0 0 4 10.5v7A2.5 2.5 0 0 0 6.5 20H20v-3" /><path d="M20 10h-5a2 2 0 0 0 0 4h5z" /></>, "arrow-right": <path d="M5 12h14m-6-6 6 6-6 6" />, "arrow-left": <path d="M19 12H5m6 6-6-6 6-6" />, "arrow-up-right": <path d="M7 17 17 7m-7 0h7v7" />, check: <path d="m5 12 4.5 4.5L19 7" />, close: <path d="m6 6 12 12M18 6 6 18" />, download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />, lock: <><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
 };
 
 function Icon({ name, label }: { name: IconName; label?: string }) { return <svg className="icon" viewBox="0 0 24 24" aria-hidden={label ? undefined : true} aria-label={label} role={label ? "img" : undefined} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{iconPaths[name]}</svg>; }
@@ -28,7 +29,9 @@ type Barber = {
   id: string;
   name: string;
   specialty: string;
-  commission: number;
+  photo: string;
+  /** Vem vazio para o cliente: é dado interno da equipe. */
+  notifyPhone: string;
   active: boolean;
 };
 
@@ -53,10 +56,14 @@ type WorkDay = {
   end: string;
 };
 
-type Session =
-  | { role: "client"; name: string; phone: string }
-  | { role: "barber"; name: string; barberId: string }
-  | { role: "admin"; name: string };
+type Session = {
+  role: Role;
+  name: string;
+  barberId: string | null;
+  mustChangePassword: boolean;
+  /** Guardado apenas no aparelho, para preencher a tela de perfil. */
+  phone?: string;
+};
 
 type StoreData = {
   services: Service[];
@@ -66,16 +73,12 @@ type StoreData = {
   availability: Record<string, WorkDay[]>;
   shopName: string;
   neighborhood: string;
+  ownerPhone: string;
+  notifyOwnerAll: boolean;
+  whatsappReady: boolean;
 };
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const STORAGE_KEY = "bartdocorte-sales-preview-v2";
-const sessionKey = (role: Role) => `${STORAGE_KEY}-session-${role}`;
-const BARBER_ACCOUNTS = [
-  { username: "bart", password: "1234", barberId: "bart" },
-  { username: "vt", password: "1234", barberId: "vt" },
-];
-const ADMIN_ACCOUNT = { username: "barbearia", password: "1234" };
 
 function defaultWeek(overrides: Partial<Record<number, { start: string; end: string }>>): WorkDay[] {
   return Array.from({ length: 7 }, (_, weekday) => ({
@@ -86,45 +89,52 @@ function defaultWeek(overrides: Partial<Record<number, { start: string; end: str
   }));
 }
 
+const emptyData: StoreData = {
+  services: [],
+  barbers: [],
+  appointments: [],
+  blocks: [],
+  availability: {},
+  shopName: "Bart do Corte",
+  neighborhood: "Campo Grande · RJ",
+  ownerPhone: "",
+  notifyOwnerAll: false,
+  whatsappReady: false,
+};
+
+/** Converte a resposta da API no formato que as telas já consomem. */
+function toStoreData(payload: Bootstrap): StoreData {
+  const availability: Record<string, WorkDay[]> = {};
+  for (const row of payload.availability) {
+    const week = availability[row.barberId] ?? defaultWeek({});
+    week[row.weekday] = { weekday: row.weekday, enabled: row.enabled, start: row.start, end: row.end };
+    availability[row.barberId] = week;
+  }
+
+  return {
+    services: payload.services,
+    barbers: payload.barbers.map(item => ({ ...item, notifyPhone: item.notifyPhone ?? "" })),
+    appointments: payload.appointments.map(item => ({
+      ...item,
+      paymentMethod: (item.paymentMethod ?? undefined) as Appointment["paymentMethod"],
+      autoCompletedAt: item.autoCompletedAt ?? undefined,
+    })),
+    blocks: payload.blocks,
+    availability,
+    shopName: payload.shop.shopName,
+    neighborhood: payload.shop.neighborhood,
+    ownerPhone: payload.shop.ownerPhone ?? "",
+    notifyOwnerAll: payload.shop.notifyOwnerAll ?? false,
+    whatsappReady: payload.whatsappReady ?? false,
+  };
+}
+
 function dateISO(offset = 0) {
   const date = new Date();
   date.setHours(12, 0, 0, 0);
   date.setDate(date.getDate() + offset);
   return date.toISOString().slice(0, 10);
 }
-
-const initialData = (): StoreData => ({
-  shopName: "Bart do Corte",
-  neighborhood: "Campo Grande · RJ",
-  services: [
-    { id: "cut", name: "Corte", description: "Clássico, social ou fade", price: 35, duration: 40, active: true },
-    { id: "beard", name: "Barba", description: "Contorno e acabamento", price: 25, duration: 30, active: true },
-    { id: "combo", name: "Corte + barba", description: "Experiência completa", price: 55, duration: 60, active: true },
-    { id: "kids", name: "Corte infantil", description: "Para os pequenos", price: 30, duration: 35, active: true },
-  ],
-  barbers: [
-    { id: "bart", name: "Bart", specialty: "Clássicos e barba", commission: 50, active: true },
-    { id: "vt", name: "VT", specialty: "Fade e navalhado", commission: 50, active: true },
-  ],
-  appointments: [
-    { id: "a1", client: "Cliente 01", phone: "(21) 9XXXX-0001", serviceId: "combo", barberId: "vt", date: dateISO(), time: "10:00", status: "completed", paid: true, paymentMethod: "Pix" },
-    { id: "a2", client: "Cliente 02", phone: "(21) 9XXXX-0002", serviceId: "cut", barberId: "vt", date: dateISO(), time: "11:00", status: "confirmed", paid: false },
-    { id: "a3", client: "Cliente 03", phone: "(21) 9XXXX-0003", serviceId: "beard", barberId: "bart", date: dateISO(), time: "13:30", status: "confirmed", paid: false },
-    { id: "a4", client: "Cliente 04", phone: "(21) 9XXXX-0004", serviceId: "cut", barberId: "vt", date: dateISO(1), time: "15:00", status: "confirmed", paid: false },
-    { id: "a5", client: "Cliente 05", phone: "(21) 9XXXX-0005", serviceId: "combo", barberId: "bart", date: dateISO(-1), time: "17:00", status: "completed", paid: true, paymentMethod: "Débito" },
-  ],
-  blocks: [],
-  availability: {
-    bart: defaultWeek({ 1: { start: "10:00", end: "21:00" } }),
-    vt: defaultWeek({
-      2: { start: "09:00", end: "18:00" },
-      3: { start: "09:00", end: "18:00" },
-      4: { start: "09:00", end: "18:00" },
-      5: { start: "09:00", end: "18:00" },
-      6: { start: "09:00", end: "18:00" },
-    }),
-  },
-});
 
 const roleLabels: Record<Role, string> = { client: "Cliente", barber: "Barbeiro", admin: "Proprietário" };
 const statusLabels: Record<Status, string> = { confirmed: "Confirmado", completed: "Concluído", cancelled: "Cancelado", noshow: "Faltou" };
@@ -134,9 +144,12 @@ function minutes(value: string) {
   return hour * 60 + min;
 }
 
-function normalizePhone(value: string) {
-  return value.replace(/\D/g, "");
+function timeLabel(total: number) {
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
+
+/** Precisa bater com BLOCK_SLOT_MINUTES no servidor: um bloqueio = 30 min. */
+const BLOCK_SLOT_MINUTES = 30;
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(`${value}T12:00:00`));
@@ -146,8 +159,21 @@ function weekday(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { weekday: "short" }).format(new Date(`${value}T12:00:00`)).replace(".", "");
 }
 
+type Credentials = {
+  name: string;
+  phone: string;
+  username: string;
+  password: string;
+  newPassword: string;
+};
+
+const emptyCredentials: Credentials = { name: "", phone: "", username: "", password: "", newPassword: "" };
+
+/** Etapas da tela de acesso, conforme o portal e o estado da instalação. */
+type AccessStep = "staff" | "setup" | "client" | "change-password";
+
 export default function BartApp() {
-  const [data, setData] = useState<StoreData>(initialData);
+  const [data, setData] = useState<StoreData>(emptyData);
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [portal, setPortal] = useState<Role>("client");
@@ -156,71 +182,102 @@ export default function BartApp() {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingStep, setBookingStep] = useState(1);
   const [booking, setBooking] = useState({ serviceId: "", barberId: "", date: dateISO(1), time: "" });
+  const [bookedEvent, setBookedEvent] = useState<CalendarEvent | null>(null);
   const [toast, setToast] = useState("");
   const [accessMode, setAccessMode] = useState<Role>("client");
+  const [accessStep, setAccessStep] = useState<AccessStep>("client");
+  const [setupRequired, setSetupRequired] = useState(false);
   const [pendingBooking, setPendingBooking] = useState(false);
-  const [credentials, setCredentials] = useState({ name: "", phone: "", username: "", password: "" });
+  const [credentials, setCredentials] = useState<Credentials>(emptyCredentials);
   const [loginError, setLoginError] = useState("");
   const [newService, setNewService] = useState({ name: "", price: "", duration: "" });
+  const [busy, setBusy] = useState(false);
   const role: Role = session?.role ?? portal;
-  const currentBarberId = session?.role === "barber" ? session.barberId : null;
+  const currentBarberId = session?.barberId ?? null;
 
-  /* eslint-disable react-hooks/set-state-in-effect -- restaura uma sessão persistida fora do React */
-  useEffect(() => {
-    try {
-      const path = window.location.pathname.replace(/\/+$/, "");
-      const routeRole: Role = path === "/barbeiro" ? "barber" : path === "/barbearia" ? "admin" : "client";
-      const saved = window.localStorage.getItem(STORAGE_KEY);
-      const savedSession = window.localStorage.getItem(sessionKey(routeRole));
-      setPortal(routeRole);
-      setAccessMode(routeRole);
-      if (saved) {
-        const parsed = JSON.parse(saved) as Partial<StoreData>;
-        const defaults = initialData();
-        setData({ ...defaults, ...parsed, availability: parsed.availability ?? defaults.availability });
-      }
-      if (savedSession) {
-        const parsedSession = JSON.parse(savedSession) as Session;
-        if (parsedSession.role === routeRole) setSession(parsedSession);
-      }
-      if (routeRole !== "client" && !savedSession) setScreen("access");
-    } catch { /* mantém os dados iniciais */ }
-    setReady(true);
+  const refresh = useCallback(async () => {
+    const payload = await api.bootstrap();
+    setData(toStoreData(payload));
   }, []);
+
+  /** Executa uma ação da API e traz os dados atualizados do servidor. */
+  const run = useCallback(
+    async (action: () => Promise<unknown>, successMessage?: string) => {
+      setBusy(true);
+      try {
+        await action();
+        await refresh();
+        if (successMessage) setToast(successMessage);
+        return true;
+      } catch (error) {
+        setToast(error instanceof ApiError ? error.message : "Falha de conexão com a barbearia.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+
+  /* eslint-disable react-hooks/set-state-in-effect -- estado inicial vem do servidor */
+  useEffect(() => {
+    const path = window.location.pathname.replace(/\/+$/, "");
+    const routeRole: Role = path === "/barbeiro" ? "barber" : path === "/barbearia" ? "admin" : "client";
+    setPortal(routeRole);
+    setAccessMode(routeRole);
+
+    (async () => {
+      try {
+        const status = await api.session();
+        setSetupRequired(status.setupRequired);
+        setSession(status.session);
+
+        // O proprietário ainda não existe: a primeira visita cria o acesso.
+        if (routeRole === "admin" && status.setupRequired) {
+          setAccessStep("setup");
+          setScreen("access");
+        } else if (status.session?.mustChangePassword) {
+          setAccessStep("change-password");
+          setScreen("access");
+        } else if (routeRole !== "client" && status.session?.role !== routeRole) {
+          // Uma sessão de cliente não abre o portal da equipe.
+          setAccessStep("staff");
+          setScreen("access");
+        } else {
+          setAccessStep(routeRole === "client" ? "client" : "staff");
+        }
+
+        await refresh();
+      } catch {
+        setToast("Não foi possível falar com o servidor da barbearia.");
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, [refresh]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => {
-    if (!ready) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    if (session) window.localStorage.setItem(sessionKey(session.role), JSON.stringify(session));
-    else window.localStorage.removeItem(sessionKey(portal));
-  }, [data, portal, session, ready]);
-
+  /**
+   * Recarrega ao voltar para a aba e a cada minuto. É o que faz o agendamento
+   * feito no celular do cliente aparecer sozinho na tela do barbeiro.
+   */
   useEffect(() => {
     if (!ready) return;
 
-    const finalizeElapsed = () => {
-      setData(current => {
-        const appointments = finalizeStartedAppointments(current.appointments);
-        return appointments === current.appointments ? current : { ...current, appointments };
-      });
+    const sync = () => {
+      if (document.visibilityState === "visible") refresh().catch(() => undefined);
     };
 
-    const finalizeWhenVisible = () => {
-      if (document.visibilityState === "visible") finalizeElapsed();
-    };
-
-    finalizeElapsed();
-    const timer = window.setInterval(finalizeElapsed, 15_000);
-    window.addEventListener("focus", finalizeElapsed);
-    document.addEventListener("visibilitychange", finalizeWhenVisible);
+    const timer = window.setInterval(sync, 60_000);
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
 
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", finalizeElapsed);
-      document.removeEventListener("visibilitychange", finalizeWhenVisible);
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
     };
-  }, [ready]);
+  }, [ready, refresh]);
 
   useEffect(() => {
     if (!toast) return;
@@ -235,7 +292,6 @@ export default function BartApp() {
   const revenue = calculateRevenue(data.appointments, services, currentDate);
   const barberAppointments = data.appointments.filter(item => item.barberId === currentBarberId);
   const barberRevenue = calculateRevenue(barberAppointments, services, currentDate);
-  const barberCommission = barberRevenue.month * ((barbers.get(currentBarberId ?? "")?.commission ?? 0) / 100);
   const todayAppointments = data.appointments.filter(item => item.date === currentDate && item.status !== "cancelled");
 
   const timeSlots = useMemo(() => {
@@ -260,61 +316,81 @@ export default function BartApp() {
   const navItems: [string, IconName, string][] = role === "client"
     ? [["home", "home", "Início"], ["agenda", "calendar", "Agendamentos"], ["plus", "plus", "Agendar"], ["team", "scissors", "Equipe"], ["profile", "user", "Perfil"]]
     : role === "barber"
-      ? [["home", "home", "Resumo"], ["agenda", "calendar", "Agenda"], ["availability", "calendar", "Horários"], ["management", "wallet", "Ganhos"], ["profile", "user", "Perfil"]]
-      : [["home", "grid", "Visão geral"], ["agenda", "calendar", "Agenda"], ["management", "grid", "Gestão"], ["profile", "user", "Perfil"]];
+      ? [["home", "home", "Resumo"], ["agenda", "calendar", "Agenda"], ["availability", "calendar", "Horários"], ["management", "wallet", "Produção"], ["profile", "user", "Perfil"]]
+      : [["home", "grid", "Visão geral"], ["agenda", "calendar", "Agenda"], ["management", "grid", "Gestão"], ["security", "lock", "Acessos"], ["profile", "user", "Perfil"]];
 
   function openAccess(mode: Role, wantsBooking = false) {
     setAccessMode(mode);
+    setAccessStep(mode === "client" ? "client" : setupRequired && mode === "admin" ? "setup" : "staff");
     setPendingBooking(wantsBooking);
-    setCredentials({ name: "", phone: "", username: "", password: "" });
+    setCredentials(emptyCredentials);
     setLoginError("");
     setScreen("access");
   }
 
-  function submitAccess() {
-    setLoginError("");
-    if (accessMode === "client") {
-      const name = credentials.name.trim();
-      const phone = credentials.phone.trim();
-      if (name.length < 2 || phone.replace(/\D/g, "").length < 10) {
-        setLoginError("Informe seu nome e um telefone válido com DDD.");
-        return;
-      }
-      setSession({ role: "client", name, phone });
-      setScreen("home");
-      setToast(`Olá, ${name.split(" ")[0]}! Vamos agendar.`);
-      if (pendingBooking) window.setTimeout(openBooking, 0);
-      setPendingBooking(false);
+  function afterLogin(next: Session) {
+    setSession(next);
+    setCredentials(emptyCredentials);
+
+    if (next.mustChangePassword) {
+      setAccessStep("change-password");
+      setScreen("access");
+      setToast("Defina uma senha nova para continuar");
       return;
     }
 
-    const username = credentials.username.trim().toLowerCase();
-    if (accessMode === "barber") {
-      const account = BARBER_ACCOUNTS.find(item => item.username === username && item.password === credentials.password);
-      if (!account) {
-        setLoginError("Nome ou senha de barbeiro incorretos.");
-        return;
-      }
-      const name = data.barbers.find(item => item.id === account.barberId)?.name ?? account.username;
-      setSession({ role: "barber", name, barberId: account.barberId });
-      setScreen("home");
-      setToast(`Acesso de ${name} liberado`);
-      return;
-    }
-
-    if (username !== ADMIN_ACCOUNT.username || credentials.password !== ADMIN_ACCOUNT.password) {
-      setLoginError("Nome ou senha de administrador incorretos.");
-      return;
-    }
-    setSession({ role: "admin", name: "Barbearia" });
     setScreen("home");
-    setToast("Painel administrativo liberado");
+    setToast(next.role === "client" ? `Olá, ${next.name.split(" ")[0]}!` : `Acesso de ${next.name} liberado`);
+    refresh().catch(() => undefined);
+    if (pendingBooking) window.setTimeout(openBooking, 0);
+    setPendingBooking(false);
   }
 
-  function logout() {
+  async function submitAccess() {
+    if (busy) return;
+    setLoginError("");
+    setBusy(true);
+
+    try {
+      if (accessStep === "setup") {
+        const { session: created } = await api.createOwner(credentials.username, credentials.password, credentials.name);
+        setSetupRequired(false);
+        afterLogin(created);
+        return;
+      }
+
+      if (accessStep === "change-password") {
+        await api.changePassword(credentials.password, credentials.newPassword);
+        setSession(current => (current ? { ...current, mustChangePassword: false } : current));
+        setCredentials(emptyCredentials);
+        setScreen("home");
+        setToast("Senha atualizada");
+        return;
+      }
+
+      if (accessStep === "client") {
+        const { session: created } = await api.loginClient(credentials.name, credentials.phone);
+        afterLogin({ ...created, phone: credentials.phone });
+        return;
+      }
+
+      const { session: created } = await api.loginStaff(credentials.username, credentials.password);
+      afterLogin(created);
+    } catch (error) {
+      setLoginError(error instanceof ApiError ? error.message : "Não foi possível entrar agora.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logout() {
+    await api.logout().catch(() => undefined);
     setSession(null);
+    setCredentials(emptyCredentials);
+    setAccessStep(portal === "client" ? "client" : "staff");
     setScreen(portal === "client" ? "home" : "access");
     setToast("Você saiu deste acesso");
+    refresh().catch(() => undefined);
   }
 
   function navigate(target: string) {
@@ -339,72 +415,84 @@ export default function BartApp() {
 
   function openBooking() {
     setBooking({ serviceId: "", barberId: "", date: dateISO(1), time: "" });
+    setBookedEvent(null);
     setBookingStep(1);
     setBookingOpen(true);
   }
 
-  function confirmBooking() {
-    const client = session?.role === "client" ? session.name : "Cliente balcão";
-    const phone = session?.role === "client" ? session.phone : "Não informado";
-    const appointment: Appointment = {
-      id: `a-${Date.now()}`,
-      client,
-      phone,
-      serviceId: booking.serviceId,
-      barberId: booking.barberId,
+  async function confirmBooking() {
+    let created: string | null = null;
+
+    const ok = await run(async () => {
+      const result = await api.book({
+        serviceId: booking.serviceId,
+        barberId: booking.barberId,
+        date: booking.date,
+        time: booking.time,
+      });
+      created = result.appointment.id;
+    }, "Horário reservado com sucesso");
+
+    if (!ok || !created) return;
+
+    setBookedEvent({
+      id: created,
       date: booking.date,
       time: booking.time,
-      status: "confirmed",
-      paid: false,
-    };
-    setData(current => ({ ...current, appointments: [...current.appointments, appointment] }));
-    setBookingOpen(false);
-    setScreen("agenda");
+      durationMinutes: services.get(booking.serviceId)?.duration ?? 30,
+      serviceName: services.get(booking.serviceId)?.name ?? "Atendimento",
+      barberName: barbers.get(booking.barberId)?.name ?? "a equipe",
+      shopName: data.shopName,
+      neighborhood: data.neighborhood,
+    });
     setSelectedDate(booking.date);
-    setToast("Horário reservado com sucesso");
+    setBookingStep(5);
+  }
+
+  function closeBooking() {
+    setBookingOpen(false);
+    if (bookedEvent) setScreen("agenda");
+    setBookedEvent(null);
   }
 
   function updateAppointment(id: string, status: Status, paid?: boolean) {
-    setData(current => ({
-      ...current,
-      appointments: current.appointments.map(item => item.id === id ? { ...item, status, paid: paid ?? item.paid, paymentMethod: paid ? "Pix" : item.paymentMethod } : item),
-    }));
-    setToast(status === "completed" ? "Atendimento concluído" : "Agendamento atualizado");
+    void run(
+      () => api.updateAppointment({ id, status, paid }),
+      status === "completed" ? "Atendimento concluído" : "Agendamento atualizado",
+    );
   }
 
-  function toggleBlock(time: string) {
+  function blockRange(start: string, end: string) {
     if (!currentBarberId) return;
-    const existing = data.blocks.find(item => item.barberId === currentBarberId && item.date === selectedDate && item.time === time);
-    setData(current => ({
-      ...current,
-      blocks: existing ? current.blocks.filter(item => item.id !== existing.id) : [...current.blocks, { id: `b-${Date.now()}`, barberId: currentBarberId, date: selectedDate, time }],
-    }));
-    setToast(existing ? "Horário liberado" : "Horário bloqueado");
+    void run(() => api.blockRange(selectedDate, start, end), `Bloqueado das ${start} às ${end}`);
+  }
+
+  function unblockRange(start: string, end: string) {
+    if (!currentBarberId) return;
+    void run(() => api.unblockRange(selectedDate, start, end), "Horário liberado");
   }
 
   function updateAvailability(weekdayNumber: number, changes: Partial<WorkDay>) {
     if (!currentBarberId) return;
-    setData(current => ({
-      ...current,
-      availability: {
-        ...current.availability,
-        [currentBarberId]: (current.availability[currentBarberId] ?? defaultWeek({})).map(item => item.weekday === weekdayNumber ? { ...item, ...changes } : item),
-      },
-    }));
-    setToast("Disponibilidade atualizada");
+    void run(() => api.updateAvailability(weekdayNumber, changes), "Disponibilidade atualizada");
   }
 
   function addService() {
     if (!newService.name || !newService.price || !newService.duration) return;
-    setData(current => ({
-      ...current,
-      services: [...current.services, { id: `s-${Date.now()}`, name: newService.name, description: "Novo serviço", price: Number(newService.price), duration: Number(newService.duration), active: true }],
-    }));
-    setNewService({ name: "", price: "", duration: "" });
-    setToast("Serviço cadastrado");
+    void run(async () => {
+      await api.addService(newService.name, Number(newService.price), Number(newService.duration));
+      setNewService({ name: "", price: "", duration: "" });
+    }, "Serviço cadastrado");
   }
 
-  const accessRequired = screen === "access" || (portal !== "client" && !session);
+
+  // Portal da equipe exige uma sessão do mesmo papel: estar logado como
+  // cliente não dá acesso a /barbeiro nem a /barbearia.
+  const accessRequired = screen === "access" || (portal !== "client" && session?.role !== portal) || Boolean(session?.mustChangePassword);
+
+  if (!ready) {
+    return <main className="app-shell"><section className="app-frame"><div className="app-content"><div className="boot-state"><span className="boot-spinner" aria-hidden="true" /><p>Carregando a barbearia…</p></div></div></section></main>;
+  }
 
   return (
     <main className="app-shell">
@@ -412,17 +500,18 @@ export default function BartApp() {
         <Header role={role} session={session} items={accessRequired ? [] : navItems} screen={screen} onNavigate={navigate} onOpen={() => session ? setScreen("profile") : openAccess(portal)} />
 
         <div className="app-content">
-          {accessRequired && <AccessScreen mode={accessMode} credentials={credentials} setCredentials={setCredentials} error={loginError} submit={submitAccess} cancel={() => { setPendingBooking(false); if (portal === "client") setScreen("home"); else window.location.assign("/"); }} />}
+          {accessRequired && <AccessScreen mode={accessMode} step={accessStep} credentials={credentials} setCredentials={setCredentials} error={loginError} busy={busy} submit={submitAccess} cancel={() => { setPendingBooking(false); if (portal === "client") setScreen("home"); else window.location.assign("/"); }} />}
           {!accessRequired && <>
-            {screen === "home" && role === "client" && <ClientHome data={data} session={session?.role === "client" ? session : null} openBooking={requestBooking} setScreen={setScreen} />}
-            {screen === "home" && role === "barber" && <BarberHome barberName={session?.role === "barber" ? session.name : "Barbeiro"} appointments={todayAppointments.filter(item => item.barberId === currentBarberId)} services={services} revenue={barberRevenue} commission={barberCommission} />}
+            {screen === "home" && role === "client" && <ClientHome data={data} session={session} openBooking={requestBooking} setScreen={setScreen} />}
+            {screen === "home" && role === "barber" && <BarberHome barberName={session?.name ?? "Barbeiro"} appointments={todayAppointments.filter(item => item.barberId === currentBarberId)} services={services} revenue={barberRevenue} />}
             {screen === "home" && role === "admin" && <AdminHome data={data} services={services} revenue={revenue} todayAppointments={todayAppointments} setScreen={setScreen} />}
-            {screen === "agenda" && <AgendaScreen role={role} session={session} barberId={currentBarberId} data={data} services={services} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} toggleBlock={toggleBlock} />}
+            {screen === "agenda" && <AgendaScreen role={role} barberId={currentBarberId} data={data} services={services} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} blockRange={blockRange} unblockRange={unblockRange} />}
             {screen === "team" && <TeamScreen data={data} openBooking={requestBooking} />}
             {screen === "availability" && role === "barber" && currentBarberId && <AvailabilityScreen barberName={session?.name ?? "Barbeiro"} days={data.availability[currentBarberId] ?? defaultWeek({})} updateDay={updateAvailability} />}
-            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} services={services} commission={barberCommission} revenue={barberRevenue.month} />}
-            {screen === "management" && role === "admin" && <ManagementScreen data={data} setData={setData} newService={newService} setNewService={setNewService} addService={addService} />}
-            {screen === "profile" && session && <ProfileScreen session={session} logout={logout} />}
+            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} services={services} revenue={barberRevenue.month} />}
+            {screen === "management" && role === "admin" && <ManagementScreen data={data} run={run} newService={newService} setNewService={setNewService} addService={addService} />}
+            {screen === "security" && role === "admin" && <SecurityScreen setToast={setToast} />}
+            {screen === "profile" && session && <ProfileScreen session={session} barber={currentBarberId ? barbers.get(currentBarberId) ?? null : null} run={run} logout={logout} />}
           </>}
         </div>
 
@@ -437,7 +526,8 @@ export default function BartApp() {
           setBooking={setBooking}
           data={data}
           timeSlots={timeSlots}
-          close={() => setBookingOpen(false)}
+          bookedEvent={bookedEvent}
+          close={closeBooking}
           confirm={confirmBooking}
         />
       )}
@@ -446,30 +536,48 @@ export default function BartApp() {
   );
 }
 
-function AccessScreen({ mode, credentials, setCredentials, error, submit, cancel }: { mode: Role; credentials: { name: string; phone: string; username: string; password: string }; setCredentials: (value: { name: string; phone: string; username: string; password: string }) => void; error: string; submit: () => void; cancel: () => void }) {
-  const copy = mode === "client"
-    ? { overline: "IDENTIFICAÇÃO RÁPIDA", title: "Antes de agendar", subtitle: "Informe seu nome e telefone para identificar e acompanhar seus horários." }
-    : mode === "barber"
-      ? { overline: "ÁREA DA EQUIPE", title: "Acesso do barbeiro", subtitle: "Entre para acompanhar a agenda e definir quando você estará na barbearia." }
-      : { overline: "GESTÃO DA BARBEARIA", title: "Acesso do proprietário", subtitle: "Painel reservado para acompanhar toda a operação." };
+const accessCopy: Record<AccessStep, { overline: string; title: string; subtitle: string; action: string }> = {
+  setup: { overline: "PRIMEIRO ACESSO", title: "Criar acesso do proprietário", subtitle: "Escolha o usuário e a senha do painel. Ninguém mais consegue criar este acesso depois.", action: "CRIAR ACESSO" },
+  staff: { overline: "ÁREA RESERVADA", title: "Entrar no painel", subtitle: "Use o acesso que a barbearia cadastrou para você.", action: "ENTRAR NO PAINEL" },
+  client: { overline: "IDENTIFICAÇÃO", title: "Antes de agendar", subtitle: "Seu nome e telefone para a barbearia saber quem chega e conseguir avisar você.", action: "CONTINUAR PARA AGENDAR" },
+  "change-password": { overline: "SEGURANÇA", title: "Defina sua senha", subtitle: "Sua senha é provisória. Escolha uma nova para continuar.", action: "SALVAR NOVA SENHA" },
+};
+
+function AccessScreen({ mode, step, credentials, setCredentials, error, busy, submit, cancel }: { mode: Role; step: AccessStep; credentials: Credentials; setCredentials: (value: Credentials) => void; error: string; busy: boolean; submit: () => void; cancel: () => void }) {
+  const copy = accessCopy[step];
+  const staffPlaceholder = mode === "barber" ? "Seu nome de barbeiro" : "Nome de acesso";
 
   return <div className="access-page">
-    <button className="access-back" onClick={cancel}><Icon name="arrow-left" /> VOLTAR AO SITE</button>
+    {step !== "change-password" && <button className="access-back" onClick={cancel}><Icon name="arrow-left" /> VOLTAR AO SITE</button>}
     <section className="access-card">
       <div className="access-brand"><img src="/bart-logo.jpg" alt="" /><span>BART DO CORTE</span></div>
       <small>{copy.overline}</small>
       <h1>{copy.title}</h1>
       <p>{copy.subtitle}</p>
       <form onSubmit={event => { event.preventDefault(); submit(); }}>
-        {mode === "client" ? <>
-          <label>SEU NOME<input autoComplete="name" value={credentials.name} onChange={event => setCredentials({ ...credentials, name: event.target.value })} placeholder="Como podemos te chamar?" /></label>
-          <label>WHATSAPP / TELEFONE<input inputMode="tel" autoComplete="tel" value={credentials.phone} onChange={event => setCredentials({ ...credentials, phone: event.target.value })} placeholder="(21) 99999-9999" /></label>
-        </> : <>
-          <label>NOME DE ACESSO<input autoComplete="username" value={credentials.username} onChange={event => setCredentials({ ...credentials, username: event.target.value })} placeholder={mode === "barber" ? "Seu nome de barbeiro" : "Nome da barbearia"} /></label>
-          <label>SENHA<input type="password" autoComplete="current-password" value={credentials.password} onChange={event => setCredentials({ ...credentials, password: event.target.value })} placeholder="••••" /></label>
+        {step === "setup" && <>
+          <label>SEU NOME<input autoComplete="name" value={credentials.name} onChange={event => setCredentials({ ...credentials, name: event.target.value })} placeholder="Nome do proprietário" /></label>
+          <label>NOME DE ACESSO<input autoComplete="username" value={credentials.username} onChange={event => setCredentials({ ...credentials, username: event.target.value })} placeholder="Ex.: barbearia" /></label>
+          <label>SENHA<input type="password" autoComplete="new-password" value={credentials.password} onChange={event => setCredentials({ ...credentials, password: event.target.value })} placeholder="Mínimo de 8 caracteres" /></label>
         </>}
+
+        {step === "staff" && <>
+          <label>NOME DE ACESSO<input autoComplete="username" value={credentials.username} onChange={event => setCredentials({ ...credentials, username: event.target.value })} placeholder={staffPlaceholder} /></label>
+          <label>SENHA<input type="password" autoComplete="current-password" value={credentials.password} onChange={event => setCredentials({ ...credentials, password: event.target.value })} placeholder="Sua senha" /></label>
+        </>}
+
+        {step === "client" && <>
+          <label>SEU NOME<input autoComplete="name" value={credentials.name} onChange={event => setCredentials({ ...credentials, name: event.target.value })} placeholder="Como podemos te chamar?" /></label>
+          <label>WHATSAPP<input inputMode="tel" autoComplete="tel" value={credentials.phone} onChange={event => setCredentials({ ...credentials, phone: event.target.value })} placeholder="(21) 99999-9999" /></label>
+        </>}
+
+        {step === "change-password" && <>
+          <label>SENHA ATUAL<input type="password" autoComplete="current-password" value={credentials.password} onChange={event => setCredentials({ ...credentials, password: event.target.value })} placeholder="A senha provisória" /></label>
+          <label>NOVA SENHA<input type="password" autoComplete="new-password" value={credentials.newPassword} onChange={event => setCredentials({ ...credentials, newPassword: event.target.value })} placeholder="Mínimo de 8 caracteres" /></label>
+        </>}
+
         {error && <div className="access-error" role="alert">{error}</div>}
-        <button className="access-submit" type="submit">{mode === "client" ? "CONTINUAR PARA AGENDAR" : "ENTRAR NO PAINEL"}<Icon name="arrow-right" /></button>
+        <button className="access-submit" type="submit" disabled={busy}>{busy ? "AGUARDE…" : copy.action}<Icon name="arrow-right" /></button>
       </form>
     </section>
   </div>;
@@ -503,8 +611,9 @@ const haircutGallery = [
   { image: "/referencia-reflexo.jpg", imagePosition: "center", name: "Reflexo", detail: "Mechas e iluminação", price: 80, duration: "1 h" },
 ];
 
-function ClientHome({ data, session, openBooking, setScreen }: { data: StoreData; session: Extract<Session, { role: "client" }> | null; openBooking: () => void; setScreen: (screen: Screen) => void }) {
-  const next = session ? data.appointments.find(item => normalizePhone(item.phone) === normalizePhone(session.phone) && item.status === "confirmed" && item.date >= dateISO()) : undefined;
+function ClientHome({ data, session, openBooking, setScreen }: { data: StoreData; session: Session | null; openBooking: () => void; setScreen: (screen: Screen) => void }) {
+  // O servidor já entrega apenas os agendamentos deste cliente.
+  const next = session ? data.appointments.find(item => item.status === "confirmed" && item.date >= dateISO()) : undefined;
   const service = data.services.find(item => item.id === next?.serviceId);
   const barber = data.barbers.find(item => item.id === next?.barberId);
   const dayLabels = ["DOMINGO", "SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA", "SÁBADO"];
@@ -588,19 +697,19 @@ function LookbookSection({ openBooking }: { openBooking: () => void }) {
   </section>;
 }
 
-function BarberHome({ barberName, appointments, services, revenue, commission }: { barberName: string; appointments: Appointment[]; services: Map<string, Service>; revenue: { today: number; month: number }; commission: number }) {
+function BarberHome({ barberName, appointments, services, revenue }: { barberName: string; appointments: Appointment[]; services: Map<string, Service>; revenue: { today: number; month: number } }) {
   return <div className="dashboard-page">
     <PageIntro overline={`BOM TRABALHO, ${barberName.toUpperCase()}`} title="Sua rotina hoje" subtitle={`${appointments.length} horários na agenda`} />
-    <div className="metric-grid"><Metric label="Produção hoje" value={money.format(revenue.today)} tone="gold" /><Metric label="Produção no mês" value={money.format(revenue.month)} /><Metric label="Comissão no mês" value={money.format(commission)} /><Metric label="Agenda hoje" value={String(appointments.length)} /></div>
+    <div className="metric-grid"><Metric label="Produção hoje" value={money.format(revenue.today)} tone="gold" /><Metric label="Produção no mês" value={money.format(revenue.month)} /><Metric label="Agenda hoje" value={String(appointments.length)} /></div>
     <SectionTitle overline="AGENDA DE HOJE" title="Próximos clientes" />
     <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div>
-    <div className="goal-card"><div><small>META DO MÊS</small><strong>68%</strong></div><p>Faltam {money.format(640)} para sua meta</p><div><i style={{ width: "68%" }} /></div></div>
   </div>;
 }
 
 function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { data: StoreData; services: Map<string, Service>; revenue: { today: number; month: number }; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void }) {
   const currentMonth = dateISO().slice(0, 7);
-  const pending = data.appointments.filter(item => item.status === "completed" && item.date.startsWith(`${currentMonth}-`)).reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0) * ((data.barbers.find(barber => barber.id === item.barberId)?.commission ?? 0) / 100), 0);
+  const monthCompleted = data.appointments.filter(item => item.status === "completed" && item.date.startsWith(`${currentMonth}-`));
+  const averageTicket = monthCompleted.length ? monthCompleted.reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0) / monthCompleted.length : 0;
   const confirmedToday = todayAppointments.filter(item => item.status === "confirmed").length;
   const completedToday = todayAppointments.filter(item => item.status === "completed").length;
   const occupancy = Math.min(100, Math.round((todayAppointments.length / 10) * 100));
@@ -609,7 +718,7 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { 
   const barberStats = data.barbers.map(barber => {
     const appointments = data.appointments.filter(item => item.barberId === barber.id && item.status === "completed");
     const produced = appointments.reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
-    return { ...barber, appointments: appointments.length, produced, commissionValue: produced * barber.commission / 100 };
+    return { ...barber, appointments: appointments.length, produced };
   });
 
   return <div className="dashboard-page admin-dashboard">
@@ -619,7 +728,7 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { 
       <article className="admin-kpi primary"><span>FATURAMENTO DO MÊS</span><strong>{money.format(revenue.month)}</strong><p>Somente atendimentos concluídos</p><i><Icon name="arrow-up-right" /></i></article>
       <article className="admin-kpi"><span>FATURAMENTO DE HOJE</span><strong>{money.format(revenue.today)}</strong><p>{completedToday} atendimento{completedToday === 1 ? "" : "s"} concluído{completedToday === 1 ? "" : "s"}</p><i><Icon name="wallet" /></i></article>
       <article className="admin-kpi"><span>AGENDA DE HOJE</span><strong>{todayAppointments.length}</strong><p>{confirmedToday} confirmados · {completedToday} concluídos</p><i><Icon name="calendar" /></i></article>
-      <article className="admin-kpi"><span>COMISSÕES DO MÊS</span><strong>{money.format(pending)}</strong><p>Repasse estimado da equipe</p><i><Icon name="user" /></i></article>
+      <article className="admin-kpi"><span>TICKET MÉDIO DO MÊS</span><strong>{money.format(averageTicket)}</strong><p>{monthCompleted.length} atendimento{monthCompleted.length === 1 ? "" : "s"} no mês</p><i><Icon name="user" /></i></article>
     </section>
 
     <div className="admin-main-grid">
@@ -639,35 +748,103 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { 
     </div>
 
     <section className="admin-team-panel">
-      <header><div><small>EQUIPE</small><h2>Desempenho dos barbeiros</h2></div><button onClick={() => setScreen("management")}>AJUSTAR COMISSÕES <Icon name="arrow-right" /></button></header>
+      <header><div><small>EQUIPE</small><h2>Desempenho dos barbeiros</h2></div><button onClick={() => setScreen("management")}>VER GESTÃO <Icon name="arrow-right" /></button></header>
       <div className="admin-team-grid">{barberStats.map((barber, index) => <article key={barber.id}>
-        <div className="admin-barber-heading"><span>{barber.name.charAt(0)}<i>0{index + 1}</i></span><div><small>{barber.specialty}</small><h3>{barber.name}</h3></div><b>{barber.commission}%</b></div>
-        <div className="admin-barber-numbers"><div><span>PRODUÇÃO</span><strong>{money.format(barber.produced)}</strong></div><div><span>COMISSÃO</span><strong>{money.format(barber.commissionValue)}</strong></div><div><span>ATENDIMENTOS</span><strong>{barber.appointments}</strong></div></div>
+        <div className="admin-barber-heading"><span>{barber.name.charAt(0)}<i>0{index + 1}</i></span><div><small>{barber.specialty}</small><h3>{barber.name}</h3></div></div>
+        <div className="admin-barber-numbers"><div><span>PRODUÇÃO</span><strong>{money.format(barber.produced)}</strong></div><div><span>ATENDIMENTOS</span><strong>{barber.appointments}</strong></div></div>
       </article>)}</div>
     </section>
 
-    <section className="admin-quick-actions"><button onClick={() => setScreen("agenda")}><span><Icon name="calendar" /></span><div><b>Agenda completa</b><small>Consultar horários da equipe</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("management")}><span><Icon name="grid" /></span><div><b>Serviços e comissões</b><small>Configurar operação</small></div><i><Icon name="arrow-right" /></i></button></section>
+    <section className="admin-quick-actions"><button onClick={() => setScreen("agenda")}><span><Icon name="calendar" /></span><div><b>Agenda completa</b><small>Consultar horários da equipe</small></div><i><Icon name="arrow-right" /></i></button><button onClick={() => setScreen("management")}><span><Icon name="grid" /></span><div><b>Serviços e equipe</b><small>Configurar operação</small></div><i><Icon name="arrow-right" /></i></button></section>
   </div>;
 }
 
-function AgendaScreen({ role, session, barberId, data, services, barbers, selectedDate, setSelectedDate, updateAppointment, toggleBlock }: { role: Role; session: Session | null; barberId: string | null; data: StoreData; services: Map<string, Service>; barbers: Map<string, Barber>; selectedDate: string; setSelectedDate: (date: string) => void; updateAppointment: (id: string, status: Status, paid?: boolean) => void; toggleBlock: (time: string) => void }) {
+/** Junta os bloqueios de 30 em 30 minutos em faixas contínuas, para exibir. */
+function mergeBlocks(times: string[]) {
+  const sorted = [...times].sort();
+  const ranges: { start: string; end: string }[] = [];
+
+  for (const time of sorted) {
+    const start = minutes(time);
+    const last = ranges.at(-1);
+
+    if (last && minutes(last.end) === start) {
+      last.end = timeLabel(start + BLOCK_SLOT_MINUTES);
+      continue;
+    }
+    ranges.push({ start: time, end: timeLabel(start + BLOCK_SLOT_MINUTES) });
+  }
+
+  return ranges;
+}
+
+function AgendaScreen({ role, barberId, data, services, barbers, selectedDate, setSelectedDate, updateAppointment, blockRange, unblockRange }: { role: Role; barberId: string | null; data: StoreData; services: Map<string, Service>; barbers: Map<string, Barber>; selectedDate: string; setSelectedDate: (date: string) => void; updateAppointment: (id: string, status: Status, paid?: boolean) => void; blockRange: (start: string, end: string) => void; unblockRange: (start: string, end: string) => void }) {
   const dates = Array.from({ length: 7 }, (_, index) => dateISO(index));
-  const dayItems = data.appointments.filter(item => {
-    if (item.date !== selectedDate) return false;
-    if (role === "barber") return item.barberId === barberId;
-    if (role === "client" && session?.role === "client") return normalizePhone(item.phone) === normalizePhone(session.phone);
-    return role === "admin";
-  }).sort((a, b) => a.time.localeCompare(b.time));
+  const [range, setRange] = useState({ start: "12:00", end: "13:00" });
+  // O recorte por papel já vem do servidor; aqui só filtramos a data.
+  const dayItems = data.appointments
+    .filter(item => item.date === selectedDate && (role !== "barber" || item.barberId === barberId))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const dayBlocks = mergeBlocks(
+    data.blocks.filter(item => item.date === selectedDate && (!barberId || item.barberId === barberId)).map(item => item.time),
+  );
+  const invalidRange = minutes(range.end) <= minutes(range.start);
+
   return <div className="dashboard-page agenda-page">
     <PageIntro overline={role === "client" ? "MEUS HORÁRIOS" : role === "barber" ? "MINHA AGENDA" : "AGENDA DA EQUIPE"} title="Agenda" subtitle={formatDate(selectedDate)} />
     <div className="date-strip">{dates.map(date => <button key={date} className={date === selectedDate ? "active" : ""} onClick={() => setSelectedDate(date)}><span>{weekday(date)}</span><b>{date.slice(-2)}</b></button>)}</div>
-    {role === "barber" && <div className="block-row"><span>Bloqueio rápido:</span>{["12:00", "12:30", "18:00"].map(time => <button key={time} onClick={() => toggleBlock(time)}>{time}</button>)}</div>}
+
+    {role === "barber" && <section className="block-panel">
+      <header>
+        <small>NÃO VOU ESTAR NA BARBEARIA</small>
+        <p>Escolha o período em que você precisa sair. Esses horários somem para o cliente na hora de agendar.</p>
+      </header>
+      <div className="block-range">
+        <label>DAS<input type="time" step={1800} value={range.start} onChange={event => setRange({ ...range, start: event.target.value })} /></label>
+        <span>ATÉ</span>
+        <label>ÀS<input type="time" step={1800} value={range.end} min={range.start} onChange={event => setRange({ ...range, end: event.target.value })} /></label>
+        <button disabled={invalidRange} onClick={() => blockRange(range.start, range.end)}>BLOQUEAR</button>
+      </div>
+      {invalidRange && <p className="block-warning" role="alert">O horário final precisa ser depois do inicial.</p>}
+
+      {dayBlocks.length > 0 && <div className="block-list">
+        {dayBlocks.map(item => <article key={`${item.start}-${item.end}`}>
+          <div><b>{item.start} às {item.end}</b><span>bloqueado</span></div>
+          <button className="ghost" onClick={() => unblockRange(item.start, item.end)}>LIBERAR</button>
+        </article>)}
+      </div>}
+    </section>}
     <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{services.get(item.serviceId)?.name}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(services.get(item.serviceId)?.price ?? 0)}</small>}{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Não há agendamentos para esta data." />}</div>
   </div>;
 }
 
+/** Foto do barbeiro, com a inicial como reserva enquanto não há imagem. */
+function BarberAvatar({ barber, index, className = "barber-avatar" }: { barber: Barber; index?: number; className?: string }) {
+  if (barber.photo) {
+    return <div className={`${className} has-photo`}>
+      <img src={barber.photo} alt={`Foto de ${barber.name}`} loading="lazy" />
+      {typeof index === "number" && <span>0{index + 1}</span>}
+    </div>;
+  }
+
+  return <div className={className}>
+    {barber.name.slice(0, 1)}
+    {typeof index === "number" && <span>0{index + 1}</span>}
+  </div>;
+}
+
 function TeamScreen({ data, openBooking }: { data: StoreData; openBooking: () => void }) {
-  return <div className="dashboard-page"><PageIntro overline="NOSSA EQUIPE" title="Escolha seu barbeiro" subtitle="Profissionais da Bart do Corte" /><div className="team-grid">{data.barbers.filter(item => item.active).map((item, index) => <article key={item.id}><div className="barber-avatar">{item.name.slice(0, 1)}<span>0{index + 1}</span></div><small>BARBEIRO</small><h3>{item.name}</h3><p>{item.specialty}</p><button onClick={openBooking}>VER HORÁRIOS <Icon name="arrow-right" /></button></article>)}</div></div>;
+  return <div className="dashboard-page">
+    <PageIntro overline="NOSSA EQUIPE" title="Escolha seu barbeiro" subtitle="Profissionais da Bart do Corte" />
+    <div className="team-grid">{data.barbers.filter(item => item.active).map((item, index) => <article key={item.id}>
+      <BarberAvatar barber={item} index={index} />
+      <small>BARBEIRO</small>
+      <h3>{item.name}</h3>
+      <p>{item.specialty}</p>
+      <button onClick={openBooking}>VER HORÁRIOS <Icon name="arrow-right" /></button>
+    </article>)}</div>
+  </div>;
 }
 
 function AvailabilityScreen({ barberName, days, updateDay }: { barberName: string; days: WorkDay[]; updateDay: (weekdayNumber: number, changes: Partial<WorkDay>) => void }) {
@@ -682,20 +859,377 @@ function AvailabilityScreen({ barberName, days, updateDay }: { barberName: strin
   </div>;
 }
 
-function EarningsScreen({ appointments, services, commission, revenue }: { appointments: Appointment[]; services: Map<string, Service>; commission: number; revenue: number }) {
-  return <div className="dashboard-page"><PageIntro overline="TRANSPARÊNCIA" title="Meus ganhos" subtitle="Produção e comissão acumulada" /><div className="earnings-hero"><small>VALOR A RECEBER</small><strong>{money.format(commission)}</strong><p>50% sobre {money.format(revenue)} produzidos</p></div><div className="financial-list"><div><span>Já recebido</span><b>{money.format(commission * .6)}</b></div><div><span>Pendente</span><b className="gold-text">{money.format(commission * .4)}</b></div><div><span>Atendimentos</span><b>{appointments.length}</b></div></div><SectionTitle overline="HISTÓRICO" title="Últimos atendimentos" /><div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div></div>;
+function EarningsScreen({ appointments, services, revenue }: { appointments: Appointment[]; services: Map<string, Service>; revenue: number }) {
+  const monthAppointments = appointments.filter(item => item.date.startsWith(`${dateISO().slice(0, 7)}-`));
+  const ticket = monthAppointments.length ? revenue / monthAppointments.length : 0;
+
+  return <div className="dashboard-page">
+    <PageIntro overline="TRANSPARÊNCIA" title="Minha produção" subtitle="O que você atendeu neste mês" />
+    <div className="earnings-hero"><small>PRODUÇÃO DO MÊS</small><strong>{money.format(revenue)}</strong><p>{monthAppointments.length} atendimento{monthAppointments.length === 1 ? "" : "s"} concluído{monthAppointments.length === 1 ? "" : "s"}</p></div>
+    <div className="financial-list">
+      <div><span>Atendimentos no mês</span><b>{monthAppointments.length}</b></div>
+      <div><span>Ticket médio</span><b>{money.format(ticket)}</b></div>
+      <div><span>Atendimentos no total</span><b>{appointments.length}</b></div>
+    </div>
+    <SectionTitle overline="HISTÓRICO" title="Últimos atendimentos" />
+    <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div>
+  </div>;
 }
 
-function ManagementScreen({ data, setData, newService, setNewService, addService }: { data: StoreData; setData: (updater: (current: StoreData) => StoreData) => void; newService: { name: string; price: string; duration: string }; setNewService: (value: { name: string; price: string; duration: string }) => void; addService: () => void }) {
-  return <div className="dashboard-page"><PageIntro overline="CONFIGURAÇÃO" title="Gestão" subtitle="Serviços, equipe e comissões" /><SectionTitle overline="CATÁLOGO" title="Serviços" /><div className="manage-list">{data.services.map(item => <article key={item.id}><div><b>{item.name}</b><span>{item.duration} min · {money.format(item.price)}</span></div><button className={item.active ? "toggle active" : "toggle"} aria-label={`Ativar ou desativar ${item.name}`} onClick={() => setData(current => ({ ...current, services: current.services.map(service => service.id === item.id ? { ...service, active: !service.active } : service) }))}><i /></button></article>)}</div><div className="add-form"><small>NOVO SERVIÇO</small><input placeholder="Nome" value={newService.name} onChange={event => setNewService({ ...newService, name: event.target.value })} /><div><input inputMode="decimal" placeholder="Preço" value={newService.price} onChange={event => setNewService({ ...newService, price: event.target.value })} /><input inputMode="numeric" placeholder="Minutos" value={newService.duration} onChange={event => setNewService({ ...newService, duration: event.target.value })} /></div><button onClick={addService}>CADASTRAR SERVIÇO</button></div><SectionTitle overline="EQUIPE" title="Comissões" /><div className="manage-list">{data.barbers.map(item => <article key={item.id}><div><b>{item.name}</b><span>{item.specialty}</span></div><label><input type="number" min="0" max="100" value={item.commission} onChange={event => setData(current => ({ ...current, barbers: current.barbers.map(barber => barber.id === item.id ? { ...barber, commission: Number(event.target.value) } : barber) }))} />%</label></article>)}</div></div>;
+/** Linha de serviço que abre para edição de nome, preço e duração. */
+function ServiceRow({ item, run }: { item: Service; run: (action: () => Promise<unknown>, successMessage?: string) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: item.name, price: String(item.price), duration: String(item.duration) });
+
+  function open() {
+    setDraft({ name: item.name, price: String(item.price), duration: String(item.duration) });
+    setEditing(true);
+  }
+
+  async function save() {
+    const price = Number(draft.price.replace(",", "."));
+    const duration = Number(draft.duration);
+
+    if (!draft.name.trim() || !Number.isFinite(price) || price < 0 || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+
+    const ok = await run(
+      () => api.updateService(item.id, { name: draft.name.trim(), price, duration }),
+      "Serviço atualizado",
+    );
+    if (ok) setEditing(false);
+  }
+
+  if (!editing) {
+    return <article>
+      <div><b>{item.name}</b><span>{item.duration} min · {money.format(item.price)}</span></div>
+      <div className="manage-actions">
+        <button className="link-action" onClick={open}>EDITAR</button>
+        <button className={item.active ? "toggle active" : "toggle"} aria-label={`Ativar ou desativar ${item.name}`} onClick={() => run(() => api.updateService(item.id, { active: !item.active }))}><i /></button>
+      </div>
+    </article>;
+  }
+
+  return <article className="editing">
+    <div className="edit-fields">
+      <label>NOME<input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
+      <div>
+        <label>PREÇO<input inputMode="decimal" value={draft.price} onChange={event => setDraft({ ...draft, price: event.target.value })} /></label>
+        <label>MINUTOS<input inputMode="numeric" value={draft.duration} onChange={event => setDraft({ ...draft, duration: event.target.value })} /></label>
+      </div>
+      <div className="edit-actions">
+        <button onClick={save}>SALVAR</button>
+        <button className="ghost" onClick={() => setEditing(false)}>CANCELAR</button>
+      </div>
+    </div>
+  </article>;
 }
 
-function ProfileScreen({ session, logout }: { session: Session; logout: () => void }) {
+/** Linha de barbeiro, com renomear para corrigir cadastro errado. */
+function BarberRow({ item, run }: { item: Barber; run: (action: () => Promise<unknown>, successMessage?: string) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: item.name, specialty: item.specialty, notifyPhone: item.notifyPhone });
+
+  async function save() {
+    if (draft.name.trim().length < 2) return;
+    const ok = await run(
+      () => api.updateBarber(item.id, {
+        name: draft.name.trim(),
+        specialty: draft.specialty.trim(),
+        notifyPhone: draft.notifyPhone.trim(),
+      }),
+      "Barbeiro atualizado",
+    );
+    if (ok) setEditing(false);
+  }
+
+  if (!editing) {
+    return <article>
+      <div><b>{item.name}</b><span>{item.notifyPhone ? `Avisa em ${item.notifyPhone}` : item.specialty || "Sem especialidade"}</span></div>
+      <div className="manage-actions">
+        <button className="link-action" onClick={() => { setDraft({ name: item.name, specialty: item.specialty, notifyPhone: item.notifyPhone }); setEditing(true); }}>EDITAR</button>
+        <button className={item.active ? "toggle active" : "toggle"} aria-label={`Ativar ou desativar ${item.name}`} onClick={() => run(() => api.updateBarber(item.id, { active: !item.active }), item.active ? "Barbeiro desativado" : "Barbeiro reativado")}><i /></button>
+      </div>
+    </article>;
+  }
+
+  return <article className="editing">
+    <div className="edit-fields">
+      <label>NOME<input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
+      <label>ESPECIALIDADE<input value={draft.specialty} onChange={event => setDraft({ ...draft, specialty: event.target.value })} placeholder="Ex.: Fade e navalhado" /></label>
+      <label>WHATSAPP PARA AVISOS<input inputMode="tel" value={draft.notifyPhone} onChange={event => setDraft({ ...draft, notifyPhone: event.target.value })} placeholder="(21) 99999-9999" /></label>
+      <div className="edit-actions">
+        <button onClick={save}>SALVAR</button>
+        <button className="ghost" onClick={() => setEditing(false)}>CANCELAR</button>
+      </div>
+    </div>
+  </article>;
+}
+
+function ManagementScreen({ data, run, newService, setNewService, addService }: { data: StoreData; run: (action: () => Promise<unknown>, successMessage?: string) => Promise<boolean>; newService: { name: string; price: string; duration: string }; setNewService: (value: { name: string; price: string; duration: string }) => void; addService: () => void }) {
+  const [newBarber, setNewBarber] = useState({ name: "", specialty: "" });
+  const [ownerPhone, setOwnerPhone] = useState(data.ownerPhone);
+
+  async function addBarber() {
+    if (newBarber.name.trim().length < 2) return;
+    const ok = await run(
+      () => api.addBarber(newBarber.name.trim(), newBarber.specialty.trim()),
+      "Barbeiro cadastrado",
+    );
+    if (ok) setNewBarber({ name: "", specialty: "" });
+  }
+
+  return <div className="dashboard-page">
+    <PageIntro overline="CONFIGURAÇÃO" title="Gestão" subtitle="Serviços e equipe da barbearia" />
+
+    <SectionTitle overline="CATÁLOGO" title="Serviços" />
+    <div className="manage-list">{data.services.map(item => <ServiceRow key={item.id} item={item} run={run} />)}</div>
+
+    <div className="add-form">
+      <small>NOVO SERVIÇO</small>
+      <input placeholder="Nome" value={newService.name} onChange={event => setNewService({ ...newService, name: event.target.value })} />
+      <div>
+        <input inputMode="decimal" placeholder="Preço" value={newService.price} onChange={event => setNewService({ ...newService, price: event.target.value })} />
+        <input inputMode="numeric" placeholder="Minutos" value={newService.duration} onChange={event => setNewService({ ...newService, duration: event.target.value })} />
+      </div>
+      <button onClick={addService}>CADASTRAR SERVIÇO</button>
+    </div>
+
+    <SectionTitle overline="EQUIPE" title="Barbeiros" />
+    <div className="manage-list">{data.barbers.map(item => <BarberRow key={item.id} item={item} run={run} />)}</div>
+
+    <div className="add-form">
+      <small>NOVO BARBEIRO</small>
+      <input placeholder="Nome" value={newBarber.name} onChange={event => setNewBarber({ ...newBarber, name: event.target.value })} />
+      <input placeholder="Especialidade (opcional)" value={newBarber.specialty} onChange={event => setNewBarber({ ...newBarber, specialty: event.target.value })} />
+      <button onClick={addBarber}>CADASTRAR BARBEIRO</button>
+      <p className="add-form-hint">Ele nasce com a semana fechada. Crie o acesso dele em <b>Acessos</b> e peça para marcar os dias em que atende.</p>
+    </div>
+
+    <SectionTitle overline="WHATSAPP" title="Avisos de agendamento" />
+    <div className="notify-setup">
+      {!data.whatsappReady && <p className="notify-warning" role="status">
+        A conexão com o WhatsApp ainda não foi configurada. Os números podem ser
+        preenchidos agora — os avisos começam a sair assim que a conta da Meta estiver ligada.
+      </p>}
+
+      <p className="notify-explainer">
+        Cada barbeiro recebe os agendamentos dele no WhatsApp que estiver no cadastro,
+        em <b>Barbeiros › Editar</b>. Aqui você define o seu.
+      </p>
+
+      <label>
+        SEU WHATSAPP
+        <input inputMode="tel" value={ownerPhone} onChange={event => setOwnerPhone(event.target.value)} placeholder="(21) 99999-9999" />
+      </label>
+      <button onClick={() => run(() => api.updateSettings({ ownerPhone }), "Número salvo")}>SALVAR NÚMERO</button>
+
+      <div className="notify-mode">
+        <input id="notify-owner-all" type="checkbox" checked={data.notifyOwnerAll} onChange={event => run(() => api.updateSettings({ notifyOwnerAll: event.target.checked }), "Preferência atualizada")} />
+        <label htmlFor="notify-owner-all">
+          <b>Receber os agendamentos de toda a equipe</b>
+          <small>Desligado, você recebe só o que for seu. Ligado, chega uma mensagem para cada agendamento de qualquer barbeiro — e cada mensagem é cobrada pela Meta.</small>
+        </label>
+      </div>
+    </div>
+
+    <div className="danger-zone">
+      <small>DADOS DE DEMONSTRAÇÃO</small>
+      <p>Remove os cinco agendamentos de exemplo criados na instalação. Os atendimentos reais não são afetados.</p>
+      <button onClick={() => run(() => api.updateSettings({ clearDemo: true }), "Dados de demonstração removidos")}>LIMPAR DEMONSTRAÇÃO</button>
+    </div>
+  </div>;
+}
+
+function deviceLabel(userAgent: string) {
+  if (/iPhone|iPad/i.test(userAgent)) return "iPhone / iPad";
+  if (/Android/i.test(userAgent)) return "Android";
+  if (/Windows/i.test(userAgent)) return "Windows";
+  if (/Mac OS/i.test(userAgent)) return "Mac";
+  return "Aparelho desconhecido";
+}
+
+function whenLabel(value: string | null) {
+  if (!value) return "nunca";
+  const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+/**
+ * Acessos da barbearia. É a tela que tira a dependência do desenvolvedor:
+ * o proprietário cria, redefine e desativa acesso sozinho.
+ */
+function SecurityScreen({ setToast }: { setToast: (message: string) => void }) {
+  const [accounts, setAccounts] = useState<ApiAccount[]>([]);
+  const [teamBarbers, setTeamBarbers] = useState<{ id: string; name: string }[]>([]);
+  const [devices, setDevices] = useState<ApiDevice[]>([]);
+  const [clientCount, setClientCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState({ username: "", barberId: "" });
+  const [revealed, setRevealed] = useState<{ username: string; password: string } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [accountData, deviceData] = await Promise.all([api.accounts(), api.devices()]);
+      setAccounts(accountData.accounts);
+      setTeamBarbers(accountData.barbers.map(item => ({ id: item.id, name: item.name })));
+      setDevices(deviceData.sessions);
+      setClientCount(deviceData.clientCount);
+    } catch (error) {
+      setToast(error instanceof ApiError ? error.message : "Não foi possível carregar os acessos.");
+    } finally {
+      setLoading(false);
+    }
+  }, [setToast]);
+
+  /* eslint-disable-next-line react-hooks/set-state-in-effect -- carrega os acessos do servidor ao abrir a tela */
+  useEffect(() => { void load(); }, [load]);
+
+  async function act(action: () => Promise<unknown>, message: string) {
+    try {
+      await action();
+      await load();
+      setToast(message);
+    } catch (error) {
+      setToast(error instanceof ApiError ? error.message : "Não foi possível concluir a ação.");
+    }
+  }
+
+  const withoutAccount = teamBarbers.filter(barber => !accounts.some(account => account.barberId === barber.id));
+
+  return <div className="dashboard-page">
+    <PageIntro overline="SEGURANÇA" title="Acessos" subtitle="Quem entra no sistema da barbearia" />
+
+    {revealed && <div className="secret-card" role="alert">
+      <small>SENHA PROVISÓRIA DE {revealed.username.toUpperCase()}</small>
+      <strong>{revealed.password}</strong>
+      <p>Anote agora: ela aparece uma única vez. No primeiro acesso o barbeiro é obrigado a trocar por uma senha só dele.</p>
+      <button onClick={() => setRevealed(null)}>JÁ ANOTEI</button>
+    </div>}
+
+    {loading ? <EmptyState title="Carregando acessos" text="Buscando as informações no servidor." /> : <>
+      <SectionTitle overline="CONTAS" title="Quem tem acesso" />
+      <div className="account-list">{accounts.map(account => <article key={account.id} className={account.active ? "" : "inactive"}>
+        <div className="account-heading">
+          <span>{account.displayName.charAt(0).toUpperCase()}</span>
+          <div>
+            <b>{account.displayName}</b>
+            <small>{account.username} · {account.role === "admin" ? "Proprietário" : "Barbeiro"}</small>
+          </div>
+          <em className={account.active ? "on" : "off"}>{account.active ? "ATIVO" : "DESATIVADO"}</em>
+        </div>
+        <p className="account-meta">
+          Último acesso: {whenLabel(account.lastLoginAt)}
+          {account.mustChangePassword && <b> · senha provisória pendente</b>}
+        </p>
+        <div className="account-actions">
+          <button onClick={() => act(async () => {
+            const result = await api.updateAccount(account.id, "reset");
+            if (result.temporaryPassword) setRevealed({ username: account.username, password: result.temporaryPassword });
+          }, "Senha redefinida")}>REDEFINIR SENHA</button>
+          {account.role !== "admin" && (account.active
+            ? <button className="ghost" onClick={() => act(() => api.updateAccount(account.id, "deactivate"), "Acesso desativado")}>DESATIVAR</button>
+            : <button className="ghost" onClick={() => act(() => api.updateAccount(account.id, "activate"), "Acesso reativado")}>REATIVAR</button>)}
+        </div>
+      </article>)}</div>
+
+      {withoutAccount.length > 0 && <div className="add-form">
+        <small>CRIAR ACESSO DE BARBEIRO</small>
+        <input placeholder="Nome de acesso" value={draft.username} onChange={event => setDraft({ ...draft, username: event.target.value })} />
+        <select value={draft.barberId} onChange={event => setDraft({ ...draft, barberId: event.target.value })}>
+          <option value="">Escolha o barbeiro</option>
+          {withoutAccount.map(barber => <option key={barber.id} value={barber.id}>{barber.name}</option>)}
+        </select>
+        <button disabled={!draft.username || !draft.barberId} onClick={() => act(async () => {
+          const result = await api.createAccount(draft.username, draft.barberId);
+          setRevealed({ username: result.username, password: result.temporaryPassword });
+          setDraft({ username: "", barberId: "" });
+        }, "Acesso criado")}>CRIAR ACESSO</button>
+      </div>}
+
+      <SectionTitle overline="APARELHOS" title="Aparelhos da equipe" />
+      <div className="device-list">{devices.length ? devices.map(device => <article key={device.id}>
+        <div>
+          <b>{device.displayName}</b>
+          <small>{deviceLabel(device.userAgent)} · {device.role === "admin" ? "Proprietário" : device.role === "barber" ? "Barbeiro" : "Cliente"}</small>
+          <small>Visto por último em {whenLabel(device.lastSeenAt)}</small>
+        </div>
+        {device.current
+          ? <em>ESTE APARELHO</em>
+          : <button className="ghost" onClick={() => act(() => api.revokeDevice(device.id), "Aparelho desconectado")}>ENCERRAR</button>}
+      </article>) : <EmptyState title="Nenhum aparelho conectado" text="Os acessos da equipe aparecem aqui." />}</div>
+      <p className="device-note">O login não expira: a equipe e os clientes seguem conectados até sair pelo botão, limpar os dados do navegador ou ter o acesso encerrado aqui.{clientCount > 0 && ` Hoje há ${clientCount} aparelho${clientCount === 1 ? "" : "s"} de cliente conectado${clientCount === 1 ? "" : "s"}.`}</p>
+    </>}
+  </div>;
+}
+
+/** O barbeiro envia a própria foto, que passa a aparecer na tela de Equipe. */
+function BarberPhotoCard({ barber, run }: { barber: Barber; run: (action: () => Promise<unknown>, successMessage?: string) => Promise<boolean>; }) {
+  const [error, setError] = useState("");
+  const [working, setWorking] = useState(false);
+  const inputId = "barber-photo-input";
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setError("");
+    setWorking(true);
+
+    try {
+      const photo = await prepareBarberPhoto(file);
+      await run(() => api.updateBarber(barber.id, { photo }), "Foto atualizada");
+    } catch (problem) {
+      setError(problem instanceof PhotoError ? problem.message : "Não foi possível usar esta imagem.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return <section className="photo-card">
+    <small>SUA FOTO</small>
+    <div className="photo-card-body">
+      <BarberAvatar barber={barber} className="photo-preview" />
+      <div>
+        <p>Ela aparece para o cliente na tela <b>Equipe</b> e na hora de escolher com quem cortar.</p>
+        <div className="photo-actions">
+          <label className="photo-pick" htmlFor={inputId}>{working ? "PROCESSANDO…" : barber.photo ? "TROCAR FOTO" : "ENVIAR FOTO"}</label>
+          <input
+            id={inputId}
+            type="file"
+            accept={ACCEPTED_PHOTO_TYPES.join(",")}
+            disabled={working}
+            onChange={event => {
+              void pick(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+          {barber.photo && <button className="photo-remove" disabled={working} onClick={() => run(() => api.updateBarber(barber.id, { photo: "" }), "Foto removida")}>REMOVER</button>}
+        </div>
+        {error && <p className="photo-error" role="alert">{error}</p>}
+      </div>
+    </div>
+  </section>;
+}
+
+function ProfileScreen({ session, barber, run, logout }: { session: Session; barber: Barber | null; run: (action: () => Promise<unknown>, successMessage?: string) => Promise<boolean>; logout: () => void }) {
   const initials = session.name.split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
-  return <div className="dashboard-page"><PageIntro overline="MINHA CONTA" title="Perfil e acesso" subtitle="Dados do seu perfil" /><div className="profile-card"><div className="large-avatar">{initials}</div><small>ACESSO ATUAL</small><h2>{roleLabels[session.role]}</h2><p>{session.name}</p>{session.role === "client" && <span>{session.phone}</span>}</div><button className="logout-button" onClick={logout}>SAIR DESTE ACESSO <Icon name="arrow-right" /></button></div>;
+
+  return <div className="dashboard-page">
+    <PageIntro overline="MINHA CONTA" title="Perfil e acesso" subtitle="Dados do seu perfil" />
+    <div className="profile-card">
+      {barber?.photo ? <div className="large-avatar has-photo"><img src={barber.photo} alt={`Foto de ${barber.name}`} /></div> : <div className="large-avatar">{initials}</div>}
+      <small>ACESSO ATUAL</small>
+      <h2>{roleLabels[session.role]}</h2>
+      <p>{session.name}</p>
+      {session.role === "client" && <span>{session.phone}</span>}
+    </div>
+    {barber && <BarberPhotoCard barber={barber} run={run} />}
+    <button className="logout-button" onClick={logout}>SAIR DESTE ACESSO <Icon name="arrow-right" /></button>
+  </div>;
 }
 
-function BookingSheet({ step, setStep, booking, setBooking, data, timeSlots, close, confirm }: { step: number; setStep: (step: number) => void; booking: { serviceId: string; barberId: string; date: string; time: string }; setBooking: (value: { serviceId: string; barberId: string; date: string; time: string }) => void; data: StoreData; timeSlots: { time: string; available: boolean }[]; close: () => void; confirm: () => void }) {
+function BookingSheet({ step, setStep, booking, setBooking, data, timeSlots, bookedEvent, close, confirm }: { step: number; setStep: (step: number) => void; booking: { serviceId: string; barberId: string; date: string; time: string }; setBooking: (value: { serviceId: string; barberId: string; date: string; time: string }) => void; data: StoreData; timeSlots: { time: string; available: boolean }[]; bookedEvent: CalendarEvent | null; close: () => void; confirm: () => void }) {
   const dates = Array.from({ length: 10 }, (_, index) => dateISO(index + 1));
   const service = data.services.find(item => item.id === booking.serviceId);
   const barber = data.barbers.find(item => item.id === booking.barberId);
@@ -704,7 +1238,7 @@ function BookingSheet({ step, setStep, booking, setBooking, data, timeSlots, clo
     return Boolean(data.availability[booking.barberId]?.find(item => item.weekday === day)?.enabled);
   };
   const hasAvailableTime = timeSlots.some(slot => slot.available);
-  return <div className="sheet-backdrop"><section className="booking-sheet"><header><div><small>NOVO AGENDAMENTO</small><b>Etapa {step} de 4</b></div><button onClick={close} aria-label="Fechar"><Icon name="close" /></button></header><div className="steps"><i className={step >= 1 ? "done" : ""} /><i className={step >= 2 ? "done" : ""} /><i className={step >= 3 ? "done" : ""} /><i className={step >= 4 ? "done" : ""} /></div>{step === 1 && <div className="sheet-content"><h2>Qual serviço?</h2><div className="choice-list">{data.services.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, serviceId: item.id }); setStep(2); }}><div><b>{item.name}</b><span>{item.description} · {item.duration} min</span></div><strong>{money.format(item.price)}</strong></button>)}</div></div>}{step === 2 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(1)}><Icon name="arrow-left" />Voltar</button><h2>Com quem?</h2><div className="choice-list barber-choices">{data.barbers.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, barberId: item.id, date: "", time: "" }); setStep(3); }}><i>{item.name[0]}</i><div><b>{item.name}</b><span>{item.specialty}</span></div><strong><Icon name="arrow-right" /></strong></button>)}</div></div>}{step === 3 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(2)}><Icon name="arrow-left" />Voltar</button><h2>Escolha o dia</h2><p className="availability-hint">Dias em cinza não foram liberados por {barber?.name}.</p><div className="booking-dates">{dates.map(date => { const available = dayIsAvailable(date); return <button key={date} disabled={!available} className={`${booking.date === date ? "active" : ""} ${available ? "" : "unavailable"}`} onClick={() => { setBooking({ ...booking, date, time: "" }); setStep(4); }}><span>{weekday(date)}</span><b>{date.slice(-2)}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></button>; })}</div></div>}{step === 4 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(3)}><Icon name="arrow-left" />Voltar</button><h2>Melhor horário</h2><p className="booking-summary">{service?.name} com {barber?.name} · {formatDate(booking.date)}</p><p className="availability-hint">Horários em cinza estão fora do expediente ou já foram ocupados.</p><div className="time-grid">{timeSlots.map(slot => <button key={slot.time} disabled={!slot.available} className={`${booking.time === slot.time ? "active" : ""} ${slot.available ? "" : "unavailable"}`} onClick={() => setBooking({ ...booking, time: slot.time })}>{slot.time}</button>)}</div>{!hasAvailableTime && <EmptyState title="Sem horários livres" text="Escolha outra data para continuar." />}<button className="confirm-button" disabled={!booking.time} onClick={confirm}>CONFIRMAR AGENDAMENTO <Icon name="arrow-right" /></button></div>}</section></div>;
+  return <div className="sheet-backdrop"><section className="booking-sheet"><header><div><small>NOVO AGENDAMENTO</small><b>{step > 4 ? "Confirmado" : `Etapa ${step} de 4`}</b></div><button onClick={close} aria-label="Fechar"><Icon name="close" /></button></header><div className="steps"><i className={step >= 1 ? "done" : ""} /><i className={step >= 2 ? "done" : ""} /><i className={step >= 3 ? "done" : ""} /><i className={step >= 4 ? "done" : ""} /></div>{step === 1 && <div className="sheet-content"><h2>Qual serviço?</h2><div className="choice-list">{data.services.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, serviceId: item.id }); setStep(2); }}><div><b>{item.name}</b><span>{item.description} · {item.duration} min</span></div><strong>{money.format(item.price)}</strong></button>)}</div></div>}{step === 2 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(1)}><Icon name="arrow-left" />Voltar</button><h2>Com quem?</h2><div className="choice-list barber-choices">{data.barbers.filter(item => item.active).map(item => <button key={item.id} onClick={() => { setBooking({ ...booking, barberId: item.id, date: "", time: "" }); setStep(3); }}><i>{item.photo ? <img src={item.photo} alt="" /> : item.name[0]}</i><div><b>{item.name}</b><span>{item.specialty}</span></div><strong><Icon name="arrow-right" /></strong></button>)}</div></div>}{step === 3 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(2)}><Icon name="arrow-left" />Voltar</button><h2>Escolha o dia</h2><p className="availability-hint">Dias em cinza não foram liberados por {barber?.name}.</p><div className="booking-dates">{dates.map(date => { const available = dayIsAvailable(date); return <button key={date} disabled={!available} className={`${booking.date === date ? "active" : ""} ${available ? "" : "unavailable"}`} onClick={() => { setBooking({ ...booking, date, time: "" }); setStep(4); }}><span>{weekday(date)}</span><b>{date.slice(-2)}</b><small>{new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}</small></button>; })}</div></div>}{step === 4 && <div className="sheet-content"><button className="back-link" onClick={() => setStep(3)}><Icon name="arrow-left" />Voltar</button><h2>Melhor horário</h2><p className="booking-summary">{service?.name} com {barber?.name} · {formatDate(booking.date)}</p><p className="availability-hint">Horários em cinza estão fora do expediente ou já foram ocupados.</p><div className="time-grid">{timeSlots.map(slot => <button key={slot.time} disabled={!slot.available} className={`${booking.time === slot.time ? "active" : ""} ${slot.available ? "" : "unavailable"}`} onClick={() => setBooking({ ...booking, time: slot.time })}>{slot.time}</button>)}</div>{!hasAvailableTime && <EmptyState title="Sem horários livres" text="Escolha outra data para continuar." />}<button className="confirm-button" disabled={!booking.time} onClick={confirm}>CONFIRMAR AGENDAMENTO <Icon name="arrow-right" /></button></div>}{step === 5 && bookedEvent && <div className="sheet-content booking-done"><div className="done-badge"><Icon name="check" /></div><h2>Horário confirmado</h2><p className="booking-summary">{bookedEvent.serviceName} com {bookedEvent.barberName}<br />{formatDate(bookedEvent.date)} às {bookedEvent.time}</p><button className="calendar-button" onClick={() => saveToCalendar(bookedEvent)}><span><Icon name="calendar" /></span><div><b>Adicionar ao calendário</b><small>Salva no celular com lembrete 1 hora antes</small></div><i><Icon name="download" /></i></button><button className="confirm-button ghost" onClick={close}>VER MEUS HORÁRIOS <Icon name="arrow-right" /></button></div>}</section></div>;
 }
 
 function BottomNav({ items, screen, onNavigate }: { items: [string, IconName, string][]; screen: Screen; onNavigate: (target: string) => void }) {

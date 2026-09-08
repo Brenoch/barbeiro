@@ -41,3 +41,12 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# build info
+tsconfig.tsbuildinfo
+
+# ferramentas locais
+/.impeccable/
+
+# segredos locais do Worker
+.dev.vars
