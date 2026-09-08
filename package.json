@@ -6,13 +6,16 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vite --config vite.hostgator.config.ts",
-    "build": "vite build --config vite.hostgator.config.ts",
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite preview",
+    "dev:hostgator": "vite --config vite.hostgator.config.ts",
     "build:hostgator": "vite build --config vite.hostgator.config.ts",
-    "start": "vite preview --config vite.hostgator.config.ts --host 0.0.0.0",
-    "test": "npm run build",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "test": "node --test \"tests/*.test.ts\"",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern hostgator-dist --ignore-pattern .next",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply site-creator-d1 --config wrangler.d1.jsonc --local",
+    "db:migrate": "wrangler d1 migrations apply site-creator-d1 --config wrangler.d1.jsonc --remote"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
@@ -37,7 +40,6 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
     "react-server-dom-webpack": "19.2.6",
-    "supabase": "2.116.0",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
