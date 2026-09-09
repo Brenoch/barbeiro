@@ -1,14 +1,18 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { appointments, services } from "@/db/schema";
+import { appointments, barbers, services } from "@/db/schema";
 import { randomId } from "@/server/password";
 import { getSession, unauthorized } from "@/server/session";
 import { notifySafely } from "@/server/notify";
-import { checkSlot, normalizePhone, upsertClient } from "@/server/store";
+import { checkSlot, dateISO, minutes } from "@/server/store";
 
+/** Só o cliente inicia agendamento por aqui. Balcão é entrega futura. */
 export async function POST(request: Request) {
   const session = await getSession(request);
   if (!session) return unauthorized("Entre para agendar.");
+  if (session.role !== "client" || !session.clientId) {
+    return Response.json({ error: "Somente o cliente pode marcar horário." }, { status: 403 });
+  }
 
   const db = getDb();
   const payload = (await request.json()) as {
@@ -16,8 +20,6 @@ export async function POST(request: Request) {
     barberId?: string;
     date?: string;
     time?: string;
-    client?: string;
-    phone?: string;
   };
 
   const { serviceId = "", barberId = "", date = "", time = "" } = payload;
@@ -30,6 +32,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Serviço indisponível." }, { status: 400 });
   }
 
+  const [barber] = await db.select().from(barbers).where(eq(barbers.id, barberId)).limit(1);
+  if (!barber || !barber.active) {
+    return Response.json({ error: "Barbeiro indisponível." }, { status: 400 });
+  }
+
+  // Nunca no passado: nem data anterior a hoje, nem horário já passado hoje.
+  const today = dateISO();
+  const pastDate = date < today;
+  const pastTimeToday = date === today && minutes(time) < minutes(currentTime());
+  if (pastDate || pastTimeToday) {
+    return Response.json({ error: "Não é possível agendar num horário que já passou." }, { status: 400 });
+  }
+
   // Revalida no servidor: a tela pode estar desatualizada e dois clientes
   // podem tocar no mesmo horário ao mesmo tempo.
   const slot = await checkSlot(barberId, date, time, service.duration);
@@ -37,27 +52,19 @@ export async function POST(request: Request) {
     return Response.json({ error: slot.reason }, { status: 409 });
   }
 
-  let clientName = session.displayName;
-  let phone = "";
-  let clientId = session.clientId;
-
-  if (session.role === "client") {
-    if (!clientId) return unauthorized();
-  } else {
-    // Atendimento de balcão lançado pelo barbeiro ou pelo proprietário.
-    clientName = payload.client?.trim() || "Cliente balcão";
-    phone = normalizePhone(payload.phone ?? "");
-    clientId = phone.length >= 10 ? await upsertClient(clientName, phone) : null;
-  }
-
   const [created] = await db
     .insert(appointments)
     .values({
       id: randomId("apt"),
-      clientId,
-      client: clientName,
-      phone,
+      clientId: session.clientId,
+      client: session.displayName,
+      phone: "",
       serviceId,
+      // Preço, nome e duração congelados agora: um reajuste depois não pode
+      // mudar quanto esse agendamento valeu nem quanto tempo ele reservou.
+      serviceName: service.name,
+      price: service.price,
+      duration: service.duration,
       barberId,
       date,
       time,
@@ -70,6 +77,16 @@ export async function POST(request: Request) {
 
   return Response.json({ appointment: created }, { status: 201 });
 }
+
+function currentTime() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+/** O que cada papel pode transicionar. Impede pular etapa ou desfazer o que já aconteceu. */
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  confirmed: ["completed", "cancelled"],
+};
 
 export async function PATCH(request: Request) {
   const session = await getSession(request);
@@ -99,6 +116,16 @@ export async function PATCH(request: Request) {
 
   if (session.role === "barber" && item.barberId !== session.barberId) {
     return Response.json({ error: "Este atendimento é de outro barbeiro." }, { status: 403 });
+  }
+
+  // Sem isso, dava para cancelar (ou "concluir" de novo) um atendimento que já
+  // tinha acabado, distorcendo o caixa depois de fechado.
+  const allowed = ALLOWED_TRANSITIONS[item.status] ?? [];
+  if (item.status !== payload.status && !allowed.includes(payload.status)) {
+    return Response.json(
+      { error: `Este agendamento já está "${item.status}" e não pode virar "${payload.status}".` },
+      { status: 409 },
+    );
   }
 
   const [updated] = await db

@@ -91,14 +91,20 @@ async function seedDemoAppointments() {
     { client: "Cliente 05", phone: "21900000005", serviceId: "combo", barberId: "bart", date: dateISO(-1), time: "17:00", status: "completed", paid: true, paymentMethod: "Débito" },
   ];
 
+  const seedServiceById = new Map(SEED_SERVICES.map(service => [service.id, service]));
+
   for (const item of demo) {
     const clientId = await upsertClient(item.client, item.phone);
+    const service = seedServiceById.get(item.serviceId);
     await db.insert(appointments).values({
       id: randomId("apt"),
       clientId,
       client: item.client,
       phone: item.phone,
       serviceId: item.serviceId,
+      serviceName: service?.name ?? "",
+      price: service?.price ?? 0,
+      duration: service?.duration ?? 30,
       barberId: item.barberId,
       date: item.date,
       time: item.time,
@@ -197,15 +203,14 @@ export async function checkSlot(
     return { free: false, reason: "Este horário foi bloqueado pelo barbeiro. Escolha outro." };
   }
 
-  const serviceRows = await db.select().from(services);
-  const durations = new Map(serviceRows.map(row => [row.id, row.duration]));
+  // A duração vem congelada em cada agendamento, não do catálogo atual: se o
+  // serviço mudar de duração depois, o compromisso já feito não pode se mexer.
   const existing = await db.select().from(appointments).where(eq(appointments.barberId, barberId));
 
   const busy = existing.some(row => {
     if (row.date !== date || row.status === "cancelled") return false;
     const rowStart = minutes(row.time);
-    const rowDuration = durations.get(row.serviceId) ?? 30;
-    return start < rowStart + rowDuration && start + duration > rowStart;
+    return start < rowStart + row.duration && start + duration > rowStart;
   });
 
   if (busy) return { free: false, reason: "Este horário acabou de ser ocupado. Escolha outro." };

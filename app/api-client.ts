@@ -38,6 +38,9 @@ export type ApiAppointment = {
   client: string;
   phone: string;
   serviceId: string;
+  serviceName: string;
+  price: number;
+  duration: number;
   barberId: string;
   date: string;
   time: string;
@@ -102,6 +105,17 @@ export type ApiDevice = {
   current: boolean;
 };
 
+export type ApiNotification = {
+  id: string;
+  kind: string;
+  status: string;
+  error: string;
+  toPhone: string;
+  createdAt: string;
+  client: string;
+  barberName: string;
+};
+
 export class ApiError extends Error {
   status: number;
 
@@ -163,7 +177,8 @@ export const api = {
 
   logout: () => call<{ ok: true }>("/api/session", { method: "DELETE" }),
 
-  book: (input: { serviceId: string; barberId: string; date: string; time: string; client?: string; phone?: string }) =>
+  // Só o cliente pode chamar isto — agendamento de balcão é entrega futura.
+  book: (input: { serviceId: string; barberId: string; date: string; time: string }) =>
     call<{ appointment: ApiAppointment }>("/api/appointments", { method: "POST", body: body(input) }),
 
   updateAppointment: (input: {
@@ -215,4 +230,7 @@ export const api = {
 
   revokeDevice: (id: string) =>
     call<{ ok: true }>("/api/security/sessions", { method: "DELETE", body: body({ id }) }),
+
+  notifications: () =>
+    call<{ notifications: ApiNotification[]; failedCount: number }>("/api/security/notifications"),
 };

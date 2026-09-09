@@ -100,5 +100,12 @@ export async function PATCH(request: Request) {
   await db.update(accounts).set({ active }).where(eq(accounts.id, account.id));
   if (!active) await destroyAccountSessions(account.id);
 
+  // O acesso e o cadastro de barbeiro são a mesma pessoa saindo ou voltando:
+  // desativar um sem o outro deixava o barbeiro sem login mas ainda
+  // agendável pelo cliente, ou vice-versa.
+  if (account.role === "barber" && account.barberId) {
+    await db.update(barbers).set({ active }).where(eq(barbers.id, account.barberId));
+  }
+
   return Response.json({ ok: true, active });
 }

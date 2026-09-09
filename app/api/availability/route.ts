@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { availability } from "@/db/schema";
 import { requireRole } from "@/server/session";
+import { minutes } from "@/server/store";
 
 export async function PATCH(request: Request) {
   const { session, response } = await requireRole(request, ["barber", "admin"]);
@@ -20,13 +21,29 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "Informe o barbeiro e o dia da semana." }, { status: 400 });
   }
 
+  const db = getDb();
+
+  // Precisa da faixa completa para validar fim > início, mesmo que só um dos
+  // dois campos tenha mudado nesta chamada.
+  const [current] = await db
+    .select()
+    .from(availability)
+    .where(and(eq(availability.barberId, barberId), eq(availability.weekday, payload.weekday)))
+    .limit(1);
+
+  const nextStart = payload.start ?? current?.start ?? "09:00";
+  const nextEnd = payload.end ?? current?.end ?? "18:00";
+
+  if ((payload.start || payload.end) && minutes(nextEnd) <= minutes(nextStart)) {
+    return Response.json({ error: "O horário de saída precisa ser depois da entrada." }, { status: 400 });
+  }
+
   const changes: Record<string, unknown> = {};
   if (typeof payload.enabled === "boolean") changes.enabled = payload.enabled;
   if (payload.start) changes.start = payload.start;
   if (payload.end) changes.end = payload.end;
   if (Object.keys(changes).length === 0) return Response.json({ ok: true });
 
-  const db = getDb();
   await db
     .update(availability)
     .set(changes)

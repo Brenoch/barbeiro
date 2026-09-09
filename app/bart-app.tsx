@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, ApiError, type ApiAccount, type ApiDevice, type Bootstrap, type BusySlot } from "./api-client";
+import { api, ApiError, type ApiAccount, type ApiDevice, type ApiNotification, type Bootstrap, type BusySlot } from "./api-client";
 import { saveToCalendar, type CalendarEvent } from "./calendar";
 import { ACCEPTED_PHOTO_TYPES, PhotoError, prepareBarberPhoto } from "./photo";
 import { calculateRevenue } from "./revenue";
@@ -40,6 +40,10 @@ type Appointment = {
   client: string;
   phone: string;
   serviceId: string;
+  /** Nome e preço de quando foi marcado — não mudam se o serviço mudar depois. */
+  serviceName: string;
+  price: number;
+  duration: number;
   barberId: string;
   date: string;
   time: string;
@@ -287,9 +291,9 @@ export default function BartApp() {
   const barbers = useMemo(() => new Map(data.barbers.map(item => [item.id, item])), [data.barbers]);
   const completed = data.appointments.filter(item => item.status === "completed");
   const currentDate = dateISO();
-  const revenue = calculateRevenue(data.appointments, services, currentDate);
+  const revenue = calculateRevenue(data.appointments, currentDate);
   const barberAppointments = data.appointments.filter(item => item.barberId === currentBarberId);
-  const barberRevenue = calculateRevenue(barberAppointments, services, currentDate);
+  const barberRevenue = calculateRevenue(barberAppointments, currentDate);
   // Ordenado por horário: é a ordem em que os clientes vão chegar.
   const todayAppointments = data.appointments
     .filter(item => item.date === currentDate && item.status !== "cancelled")
@@ -517,12 +521,12 @@ export default function BartApp() {
           {accessRequired && <AccessScreen mode={accessMode} step={accessStep} credentials={credentials} setCredentials={setCredentials} error={loginError} busy={busy} submit={submitAccess} cancel={() => { setPendingBooking(false); if (portal === "client") setScreen("home"); else window.location.assign("/"); }} />}
           {!accessRequired && <>
             {screen === "home" && role === "client" && <ClientHome data={data} session={session} openBooking={requestBooking} setScreen={setScreen} />}
-            {screen === "home" && role === "barber" && <BarberHome barberName={session?.name ?? "Barbeiro"} appointments={todayAppointments.filter(item => item.barberId === currentBarberId)} services={services} revenue={barberRevenue} />}
-            {screen === "home" && role === "admin" && <AdminHome data={data} services={services} revenue={revenue} todayAppointments={todayAppointments} setScreen={setScreen} />}
-            {screen === "agenda" && <AgendaScreen role={role} barberId={currentBarberId} data={data} services={services} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} blockRange={blockRange} unblockRange={unblockRange} />}
+            {screen === "home" && role === "barber" && <BarberHome barberName={session?.name ?? "Barbeiro"} appointments={todayAppointments.filter(item => item.barberId === currentBarberId)} revenue={barberRevenue} />}
+            {screen === "home" && role === "admin" && <AdminHome data={data} revenue={revenue} todayAppointments={todayAppointments} setScreen={setScreen} />}
+            {screen === "agenda" && <AgendaScreen role={role} barberId={currentBarberId} data={data} barbers={barbers} selectedDate={selectedDate} setSelectedDate={setSelectedDate} updateAppointment={updateAppointment} blockRange={blockRange} unblockRange={unblockRange} />}
             {screen === "team" && <TeamScreen data={data} openBooking={requestBooking} />}
             {screen === "availability" && role === "barber" && currentBarberId && <AvailabilityScreen barberName={session?.name ?? "Barbeiro"} days={data.availability[currentBarberId] ?? defaultWeek({})} updateDay={updateAvailability} />}
-            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} services={services} revenue={barberRevenue.month} />}
+            {screen === "management" && role === "barber" && <EarningsScreen appointments={completed.filter(item => item.barberId === currentBarberId)} revenue={barberRevenue.month} />}
             {screen === "management" && role === "admin" && <ManagementScreen data={data} run={run} newService={newService} setNewService={setNewService} addService={addService} />}
             {screen === "security" && role === "admin" && <SecurityScreen setToast={setToast} />}
             {screen === "profile" && session && <ProfileScreen session={session} whatsappReady={data.whatsappReady} barber={currentBarberId ? barbers.get(currentBarberId) ?? null : null} run={run} logout={logout} />}
@@ -711,27 +715,70 @@ function LookbookSection({ openBooking }: { openBooking: () => void }) {
   </section>;
 }
 
-function BarberHome({ barberName, appointments, services, revenue }: { barberName: string; appointments: Appointment[]; services: Map<string, Service>; revenue: { today: number; month: number } }) {
+function BarberHome({ barberName, appointments, revenue }: { barberName: string; appointments: Appointment[]; revenue: { today: number; month: number } }) {
   return <div className="dashboard-page">
     <PageIntro overline={`BOM TRABALHO, ${barberName.toUpperCase()}`} title="Sua rotina hoje" subtitle={`${appointments.length} horários na agenda`} />
     <div className="metric-grid"><Metric label="Produção hoje" value={money.format(revenue.today)} tone="gold" /><Metric label="Produção no mês" value={money.format(revenue.month)} /><Metric label="Agenda hoje" value={String(appointments.length)} /></div>
     <SectionTitle overline="AGENDA DE HOJE" title="Próximos clientes" />
-    <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div>
+    <div className="appointment-list">{appointments.map(item => <CompactAppointment key={item.id} item={item} showPhone />)}</div>
   </div>;
 }
 
-function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { data: StoreData; services: Map<string, Service>; revenue: { today: number; month: number }; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void }) {
+/**
+ * Quantos horários de 30 minutos a equipe consegue atender hoje, somando o
+ * expediente de cada barbeiro ativo e descontando o que ele mesmo bloqueou.
+ * É o teto real de ocupação — não um número fixo que ignora quantos
+ * barbeiros a barbearia tem.
+ */
+function todayCapacitySlots(data: StoreData, today: string) {
+  const weekdayNumber = new Date(`${today}T12:00:00`).getDay();
+  let capacity = 0;
+
+  for (const barber of data.barbers) {
+    if (!barber.active) continue;
+    const day = data.availability[barber.id]?.find(item => item.weekday === weekdayNumber);
+    if (!day?.enabled) continue;
+    capacity += Math.max(0, Math.floor((minutes(day.end) - minutes(day.start)) / 30));
+  }
+
+  const blockedToday = data.blocks.filter(item => item.date === today).length;
+  return Math.max(0, capacity - blockedToday);
+}
+
+/** Agendamentos reais dos últimos 7 dias, para o gráfico não ser inventado. */
+function last7DaysMovement(data: StoreData, today: string) {
+  const base = new Date(`${today}T12:00:00`);
+
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(base);
+    day.setDate(day.getDate() - (6 - index));
+    const date = day.toISOString().slice(0, 10);
+    const count = data.appointments.filter(item => item.date === date && item.status !== "cancelled").length;
+    return { date, count };
+  });
+
+  const max = Math.max(1, ...days.map(item => item.count));
+  return days.map(day => ({ ...day, height: Math.round((day.count / max) * 100) }));
+}
+
+function AdminHome({ data, revenue, todayAppointments, setScreen }: { data: StoreData; revenue: { today: number; month: number }; todayAppointments: Appointment[]; setScreen: (screen: Screen) => void }) {
   const currentMonth = dateISO().slice(0, 7);
+  const today = dateISO();
   const monthCompleted = data.appointments.filter(item => item.status === "completed" && item.date.startsWith(`${currentMonth}-`));
-  const averageTicket = monthCompleted.length ? monthCompleted.reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0) / monthCompleted.length : 0;
+  const averageTicket = monthCompleted.length ? monthCompleted.reduce((sum, item) => sum + item.price, 0) / monthCompleted.length : 0;
   const confirmedToday = todayAppointments.filter(item => item.status === "confirmed").length;
   const completedToday = todayAppointments.filter(item => item.status === "completed").length;
-  const occupancy = Math.min(100, Math.round((todayAppointments.length / 10) * 100));
-  const weeklyMovement = [38, 56, 44, 72, 92, 66, 34];
-  const weekdays = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"];
+
+  const capacityToday = todayCapacitySlots(data, today);
+  const occupiedToday = todayAppointments
+    .filter(item => item.status !== "cancelled")
+    .reduce((sum, item) => sum + Math.max(1, Math.ceil(item.duration / 30)), 0);
+  const occupancy = capacityToday > 0 ? Math.min(100, Math.round((occupiedToday / capacityToday) * 100)) : 0;
+
+  const weeklyMovement = last7DaysMovement(data, today);
   const barberStats = data.barbers.map(barber => {
     const appointments = data.appointments.filter(item => item.barberId === barber.id && item.status === "completed");
-    const produced = appointments.reduce((sum, item) => sum + (services.get(item.serviceId)?.price ?? 0), 0);
+    const produced = appointments.reduce((sum, item) => sum + item.price, 0);
     return { ...barber, appointments: appointments.length, produced };
   });
 
@@ -748,15 +795,15 @@ function AdminHome({ data, services, revenue, todayAppointments, setScreen }: { 
     <div className="admin-main-grid">
       <section className="admin-revenue-panel">
         <header><div><small>MOVIMENTO SEMANAL</small><h2>Ritmo da barbearia</h2></div><div className="occupancy-badge"><span>OCUPAÇÃO HOJE</span><b>{occupancy}%</b></div></header>
-        <div className="admin-bar-chart">{weeklyMovement.map((height, index) => <div className="admin-bar-column" key={weekdays[index]}><span>{height}%</span><i><b style={{ height: `${height}%` }} /></i><small>{weekdays[index]}</small></div>)}</div>
-        <footer><span><i className="confirmed-dot" /> Horários ocupados</span><p>Indicadores da agenda e dos atendimentos registrados.</p></footer>
+        <div className="admin-bar-chart">{weeklyMovement.map(day => <div className="admin-bar-column" key={day.date}><span>{day.count}</span><i><b style={{ height: `${day.height}%` }} /></i><small>{weekday(day.date).toUpperCase()}</small></div>)}</div>
+        <footer><span><i className="confirmed-dot" /> Agendamentos por dia</span><p>Últimos 7 dias, sem contar cancelados.</p></footer>
       </section>
 
       <section className="admin-agenda-panel">
         <header><div><small>OPERAÇÃO DE HOJE</small><h2>Próximos horários</h2></div><button onClick={() => setScreen("agenda")}>VER AGENDA <Icon name="arrow-right" /></button></header>
         <div className="admin-agenda-list">{todayAppointments.length ? todayAppointments.slice(0, 5).map(item => {
           const barber = data.barbers.find(current => current.id === item.barberId);
-          return <article key={item.id}><time>{item.time}</time><div><b>{item.client}</b><span>{services.get(item.serviceId)?.name} · {barber?.name}</span></div><em className={item.status}>{statusLabels[item.status]}</em></article>;
+          return <article key={item.id}><time>{item.time}</time><div><b>{item.client}</b><span>{item.serviceName} · {barber?.name}</span></div><em className={item.status}>{statusLabels[item.status]}</em></article>;
         }) : <EmptyState title="Agenda livre hoje" text="Nenhum cliente marcou horário para esta data." />}</div>
       </section>
     </div>
@@ -792,7 +839,7 @@ function mergeBlocks(times: string[]) {
   return ranges;
 }
 
-function AgendaScreen({ role, barberId, data, services, barbers, selectedDate, setSelectedDate, updateAppointment, blockRange, unblockRange }: { role: Role; barberId: string | null; data: StoreData; services: Map<string, Service>; barbers: Map<string, Barber>; selectedDate: string; setSelectedDate: (date: string) => void; updateAppointment: (id: string, status: Status, paid?: boolean) => void; blockRange: (start: string, end: string) => void; unblockRange: (start: string, end: string) => void }) {
+function AgendaScreen({ role, barberId, data, barbers, selectedDate, setSelectedDate, updateAppointment, blockRange, unblockRange }: { role: Role; barberId: string | null; data: StoreData; barbers: Map<string, Barber>; selectedDate: string; setSelectedDate: (date: string) => void; updateAppointment: (id: string, status: Status, paid?: boolean) => void; blockRange: (start: string, end: string) => void; unblockRange: (start: string, end: string) => void }) {
   const dates = Array.from({ length: 7 }, (_, index) => dateISO(index));
   const [range, setRange] = useState({ start: "12:00", end: "13:00" });
   // O recorte por papel já vem do servidor; aqui só filtramos a data.
@@ -829,7 +876,7 @@ function AgendaScreen({ role, barberId, data, services, barbers, selectedDate, s
         </article>)}
       </div>}
     </section>}
-    <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{services.get(item.serviceId)?.name}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(services.get(item.serviceId)?.price ?? 0)}</small>}{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Não há agendamentos para esta data." />}</div>
+    <div className="timeline">{dayItems.length ? dayItems.map(item => <article key={item.id} className={`timeline-item status-${item.status}`}><time>{item.time}</time><div><span className="status-pill">{statusLabels[item.status]}</span><h3>{item.serviceName}</h3><p>{role === "client" ? `com ${barbers.get(item.barberId)?.name}` : item.client}</p>{role !== "client" && <small>{item.phone} · {money.format(item.price)}</small>}{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}<div className="item-actions">{item.status === "confirmed" && role !== "client" && <button onClick={() => updateAppointment(item.id, "completed", true)}>Concluir</button>}{item.status === "confirmed" && <button className="ghost" onClick={() => updateAppointment(item.id, "cancelled")}>Cancelar</button>}</div></div></article>) : <EmptyState title="Nenhum horário neste dia" text="Não há agendamentos para esta data." />}</div>
   </div>;
 }
 
@@ -873,7 +920,7 @@ function AvailabilityScreen({ barberName, days, updateDay }: { barberName: strin
   </div>;
 }
 
-function EarningsScreen({ appointments, services, revenue }: { appointments: Appointment[]; services: Map<string, Service>; revenue: number }) {
+function EarningsScreen({ appointments, revenue }: { appointments: Appointment[]; revenue: number }) {
   const monthAppointments = appointments.filter(item => item.date.startsWith(`${dateISO().slice(0, 7)}-`));
   const ticket = monthAppointments.length ? revenue / monthAppointments.length : 0;
 
@@ -889,7 +936,7 @@ function EarningsScreen({ appointments, services, revenue }: { appointments: App
       <div><span>Atendimentos no total</span><b>{appointments.length}</b></div>
     </div>
     <SectionTitle overline="HISTÓRICO" title="Últimos atendimentos" />
-    <div className="appointment-list">{recent.map(item => <CompactAppointment key={item.id} item={item} service={services.get(item.serviceId)} showPhone />)}</div>
+    <div className="appointment-list">{recent.map(item => <CompactAppointment key={item.id} item={item} showPhone />)}</div>
   </div>;
 }
 
@@ -1055,17 +1102,25 @@ function SecurityScreen({ setToast }: { setToast: (message: string) => void }) {
   const [teamBarbers, setTeamBarbers] = useState<{ id: string; name: string }[]>([]);
   const [devices, setDevices] = useState<ApiDevice[]>([]);
   const [clientCount, setClientCount] = useState(0);
+  const [notificationLog, setNotificationLog] = useState<ApiNotification[]>([]);
+  const [failedCount, setFailedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState({ username: "", barberId: "" });
   const [revealed, setRevealed] = useState<{ username: string; password: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [accountData, deviceData] = await Promise.all([api.accounts(), api.devices()]);
+      const [accountData, deviceData, notificationData] = await Promise.all([
+        api.accounts(),
+        api.devices(),
+        api.notifications(),
+      ]);
       setAccounts(accountData.accounts);
       setTeamBarbers(accountData.barbers.map(item => ({ id: item.id, name: item.name })));
       setDevices(deviceData.sessions);
       setClientCount(deviceData.clientCount);
+      setNotificationLog(notificationData.notifications);
+      setFailedCount(notificationData.failedCount);
     } catch (error) {
       setToast(error instanceof ApiError ? error.message : "Não foi possível carregar os acessos.");
     } finally {
@@ -1150,6 +1205,21 @@ function SecurityScreen({ setToast }: { setToast: (message: string) => void }) {
           : <button className="ghost" onClick={() => act(() => api.revokeDevice(device.id), "Aparelho desconectado")}>ENCERRAR</button>}
       </article>) : <EmptyState title="Nenhum aparelho conectado" text="Os acessos da equipe aparecem aqui." />}</div>
       <p className="device-note">O login não expira: a equipe e os clientes seguem conectados até sair pelo botão, limpar os dados do navegador ou ter o acesso encerrado aqui.{clientCount > 0 && ` Hoje há ${clientCount} aparelho${clientCount === 1 ? "" : "s"} de cliente conectado${clientCount === 1 ? "" : "s"}.`}</p>
+
+      <SectionTitle overline="WHATSAPP" title="Avisos enviados" />
+      {notificationLog.length === 0
+        ? <EmptyState title="Nenhum aviso ainda" text="Assim que um agendamento disparar uma mensagem, ela aparece aqui." />
+        : <>
+          {failedCount > 0 && <p className="notify-log-warning" role="alert">{failedCount === 1 ? "1 aviso não chegou" : `${failedCount} avisos não chegaram`} ao destino nos últimos registros.</p>}
+          <div className="notify-log">{notificationLog.map(item => <article key={item.id} className={item.status}>
+            <div>
+              <b>{item.kind === "created" ? "Novo agendamento" : "Cancelamento"} · {item.barberName || "barbeiro"}</b>
+              <small>{item.client || "cliente"} · {item.toPhone} · {whenLabel(item.createdAt)}</small>
+              {item.status === "failed" && <small className="notify-log-error">{item.error || "Falha não detalhada."}</small>}
+            </div>
+            <em className={item.status}>{item.status === "sent" ? "ENVIADO" : "FALHOU"}</em>
+          </article>)}</div>
+        </>}
     </>}
   </div>;
 }
@@ -1280,5 +1350,5 @@ function BottomNav({ items, screen, onNavigate }: { items: [string, IconName, st
 function SectionTitle({ title, action, onAction }: { overline: string; title: string; action?: string; onAction?: () => void }) { return <div className="section-heading"><h2>{title}</h2>{action && <button onClick={onAction}>{action}</button>}</div>; }
 function PageIntro({ title, subtitle }: { overline: string; title: string; subtitle: string }) { return <div className="page-intro"><h1>{title}</h1><p>{subtitle}</p></div>; }
 function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) { return <article className={`metric ${tone ?? ""}`}><span>{label}</span><b>{value}</b></article>; }
-function CompactAppointment({ item, service, barber, showPhone = false }: { item: Appointment; service?: Service; barber?: string; showPhone?: boolean }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{service?.name}</b><span>{barber || (showPhone ? `${item.client} · ${item.phone}` : item.client)}</span>{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}</div><strong className={`dot ${item.status}`} aria-label={`${statusLabels[item.status]}${item.paid ? ", pago" : ""}`} /></article>; }
+function CompactAppointment({ item, barber, showPhone = false }: { item: Appointment; barber?: string; showPhone?: boolean }) { return <article className="compact-appointment"><time>{item.time}</time><div><b>{item.serviceName}</b><span>{barber || (showPhone ? `${item.client} · ${item.phone}` : item.client)}</span>{item.paid && <small className="payment-paid">{item.autoCompletedAt ? "Pago automaticamente" : "Pago"}</small>}</div><strong className={`dot ${item.status}`} aria-label={`${statusLabels[item.status]}${item.paid ? ", pago" : ""}`} /></article>; }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Icon name="scissors" /></span><b>{title}</b><p>{text}</p></div>; }

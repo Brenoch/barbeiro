@@ -90,6 +90,14 @@ export const appointments = sqliteTable(
     client: text("client").notNull(),
     phone: text("phone").notNull().default(""),
     serviceId: text("service_id").notNull(),
+    /**
+     * Nome e preço do serviço no momento do agendamento. Um reajuste de preço
+     * feito depois não pode mudar o faturamento de um mês que já fechou, e o
+     * histórico precisa continuar legível mesmo se o serviço for renomeado.
+     */
+    serviceName: text("service_name").notNull().default(""),
+    price: integer("price").notNull().default(0),
+    duration: integer("duration").notNull().default(30),
     barberId: text("barber_id").notNull(),
     date: text("date").notNull(),
     time: text("time").notNull(),

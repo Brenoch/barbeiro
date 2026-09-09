@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { availability, barbers } from "@/db/schema";
+import { accounts, availability, barbers } from "@/db/schema";
 import { randomId } from "@/server/password";
-import { getSession, forbidden, requireRole, unauthorized } from "@/server/session";
+import { destroyAccountSessions, getSession, forbidden, requireRole, unauthorized } from "@/server/session";
 
 /** Teto do que é aceito no banco, depois da compressão feita no navegador. */
 const MAX_PHOTO_BYTES = 300_000;
@@ -113,5 +113,22 @@ export async function PATCH(request: Request) {
 
   const db = getDb();
   await db.update(barbers).set(changes).where(eq(barbers.id, id));
+
+  // Mesma pessoa dos dois lados: esconder o barbeiro do agendamento também
+  // derruba o login dele, senão ele continua entrando numa agenda que o
+  // cliente não enxerga mais.
+  if (typeof changes.active === "boolean") {
+    const [linkedAccount] = await db
+      .select()
+      .from(accounts)
+      .where(eq(accounts.barberId, id))
+      .limit(1);
+
+    if (linkedAccount) {
+      await db.update(accounts).set({ active: changes.active }).where(eq(accounts.id, linkedAccount.id));
+      if (!changes.active) await destroyAccountSessions(linkedAccount.id);
+    }
+  }
+
   return Response.json({ ok: true });
 }

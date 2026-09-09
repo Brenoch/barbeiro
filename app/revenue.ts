@@ -1,11 +1,7 @@
 type RevenueAppointment = {
-  serviceId: string;
+  price: number;
   date: string;
   status: string;
-};
-
-type PricedService = {
-  price: number;
 };
 
 export type RevenueSummary = {
@@ -14,9 +10,12 @@ export type RevenueSummary = {
   month: number;
 };
 
+/**
+ * Soma o preço congelado em cada agendamento, não o preço atual do catálogo.
+ * Um reajuste de hoje não pode mudar o faturamento de um mês que já fechou.
+ */
 export function calculateRevenue(
   appointments: RevenueAppointment[],
-  services: Map<string, PricedService>,
   referenceDate: string,
 ): RevenueSummary {
   const monthPrefix = `${referenceDate.slice(0, 7)}-`;
@@ -24,10 +23,9 @@ export function calculateRevenue(
   return appointments.reduce<RevenueSummary>((summary, appointment) => {
     if (appointment.status !== "completed") return summary;
 
-    const price = services.get(appointment.serviceId)?.price ?? 0;
-    summary.total += price;
-    if (appointment.date === referenceDate) summary.today += price;
-    if (appointment.date.startsWith(monthPrefix)) summary.month += price;
+    summary.total += appointment.price;
+    if (appointment.date === referenceDate) summary.today += appointment.price;
+    if (appointment.date.startsWith(monthPrefix)) summary.month += appointment.price;
     return summary;
   }, { total: 0, today: 0, month: 0 });
 }
