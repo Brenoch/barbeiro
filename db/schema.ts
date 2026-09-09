@@ -6,10 +6,6 @@ export const shopSettings = sqliteTable("shop_settings", {
   id: text("id").primaryKey().default("shop"),
   shopName: text("shop_name").notNull().default("Bart do Corte"),
   neighborhood: text("neighborhood").notNull().default("Campo Grande · RJ"),
-  /** WhatsApp do proprietário, para os avisos de agendamento. */
-  ownerPhone: text("owner_phone").notNull().default(""),
-  /** Quando ligado, o proprietário recebe também os avisos de toda a equipe. */
-  notifyOwnerAll: integer("notify_owner_all", { mode: "boolean" }).notNull().default(false),
 });
 
 export const services = sqliteTable("services", {

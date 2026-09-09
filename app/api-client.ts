@@ -57,12 +57,15 @@ export type ApiAvailability = {
 
 export type ApiBlock = { id: string; barberId: string; date: string; time: string };
 
+/**
+ * Horário indisponível, sem identificar quem ocupou. É o que permite ao
+ * cliente ver a agenda cheia sem ver a agenda dos outros.
+ */
+export type BusySlot = { barberId: string; date: string; time: string; duration: number };
+
 export type ApiShop = {
   shopName: string;
   neighborhood: string;
-  /** Só preenchidos para o proprietário. */
-  ownerPhone?: string;
-  notifyOwnerAll?: boolean;
 };
 
 export type Bootstrap = {
@@ -72,6 +75,7 @@ export type Bootstrap = {
   availability: ApiAvailability[];
   appointments: ApiAppointment[];
   blocks: ApiBlock[];
+  busySlots: BusySlot[];
   /** Falso enquanto as credenciais da Meta não estiverem configuradas. */
   whatsappReady?: boolean;
 };

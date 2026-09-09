@@ -11,7 +11,10 @@ import { env } from "cloudflare:workers";
 import { finalizeStartedAppointments } from "@/server/automation";
 import { readWhatsAppConfig } from "@/server/whatsapp";
 import { getSession, touchSession } from "@/server/session";
-import { ensureSeed, getSettings } from "@/server/store";
+import { BLOCK_SLOT_MINUTES, dateISO, ensureSeed, getSettings } from "@/server/store";
+
+/** Horário indisponível, sem dizer de quem é nem por quê. */
+type BusySlot = { barberId: string; date: string; time: string; duration: number };
 
 /**
  * Carrega tudo que a sessão atual tem direito de ver. O recorte acontece
@@ -43,6 +46,34 @@ export async function GET(request: Request) {
     .filter(row => row.active)
     .map(row => ({ ...row, notifyPhone: "" }));
 
+  /**
+   * Horários já tomados, para o cliente não escolher um que vai ser recusado
+   * na confirmação. Vai anonimizado: só barbeiro, dia, hora e duração — quem
+   * agendou e se foi bloqueio do barbeiro não são da conta de quem está
+   * marcando. Só o futuro, porque agenda passada não muda mais nada.
+   */
+  const today = dateISO();
+  const durations = new Map(serviceRows.map(row => [row.id, row.duration]));
+
+  const busySlots: BusySlot[] = [
+    ...(await db.select().from(appointments))
+      .filter(row => row.status !== "cancelled" && row.date >= today)
+      .map(row => ({
+        barberId: row.barberId,
+        date: row.date,
+        time: row.time,
+        duration: durations.get(row.serviceId) ?? 30,
+      })),
+    ...(await db.select().from(blocks))
+      .filter(row => row.date >= today)
+      .map(row => ({
+        barberId: row.barberId,
+        date: row.date,
+        time: row.time,
+        duration: BLOCK_SLOT_MINUTES,
+      })),
+  ];
+
   // Visitante sem sessão vê apenas a vitrine.
   if (!session) {
     return Response.json({
@@ -52,6 +83,7 @@ export async function GET(request: Request) {
       availability: availabilityRows,
       appointments: [],
       blocks: [],
+      busySlots,
     });
   }
 
@@ -68,6 +100,7 @@ export async function GET(request: Request) {
       availability: availabilityRows,
       appointments: own.map(row => ({ ...row, phone: "" })),
       blocks: [],
+      busySlots,
     });
   }
 
@@ -85,20 +118,18 @@ export async function GET(request: Request) {
       availability: availabilityRows.filter(row => row.barberId === barberId),
       appointments: own,
       blocks: ownBlocks,
+      busySlots,
       whatsappReady,
     });
   }
 
   return Response.json({
-    shop: {
-      ...shop,
-      ownerPhone: settings?.ownerPhone ?? "",
-      notifyOwnerAll: settings?.notifyOwnerAll ?? false,
-    },
+    shop,
     services: serviceRows,
     barbers: barberRows,
     availability: availabilityRows,
     whatsappReady,
+    busySlots,
     appointments: await db.select().from(appointments),
     blocks: await db.select().from(blocks),
   });

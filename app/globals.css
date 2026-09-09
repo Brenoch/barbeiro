@@ -391,19 +391,17 @@ button { cursor: pointer; }
 .edit-actions button { padding: 10px; border: 0; background: var(--gold); color: var(--ink); font-size: 9px; font-weight: 900; letter-spacing: .06em; }
 .edit-actions button.ghost { border: 1px solid var(--line); background: transparent; color: var(--muted); }
 
-/* Configuração dos avisos de agendamento no WhatsApp. */
-.notify-setup { display: grid; gap: 10px; margin-bottom: 22px; padding: 16px; background: var(--ink); color: white; }
-.notify-warning { margin: 0; padding: 11px 13px; border-top: 3px solid var(--gold); background: #272620; font-size: 10px; line-height: 1.55; color: var(--gold-soft); }
-.notify-explainer { margin: 0; font-size: 10px; line-height: 1.55; color: #aaa69b; }
-.notify-explainer b { color: white; font-weight: 700; }
-.notify-setup > label { display: grid; gap: 5px; font-size: 8px; letter-spacing: .15em; font-weight: 900; color: var(--gold); }
-.notify-setup input[type="tel"], .notify-setup > label input { width: 100%; padding: 11px; border: 1px solid #454239; background: #272620; color: white; font-size: 12px; }
-.notify-setup > button { border: 0; background: var(--gold); color: var(--ink); padding: 11px; font-size: 9px; font-weight: 900; letter-spacing: .06em; }
-.notify-mode { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; margin-top: 3px; padding-top: 10px; border-top: 1px solid #38362f; }
-.notify-mode input { width: 19px; height: 19px; margin-top: 2px; accent-color: var(--gold); }
-.notify-mode label { display: grid; gap: 4px; cursor: pointer; }
-.notify-mode b { font-size: 11px; }
-.notify-mode small { color: #aaa69b; font-size: 9px; line-height: 1.5; }
+/* Telefone de avisos no perfil do próprio barbeiro. */
+.notify-card-body { display: grid; gap: 9px; }
+.notify-card-body p { margin: 0; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.notify-card-body p b { color: var(--ink); }
+.notify-card-warning { padding: 10px 12px; background: var(--paper); border-top: 3px solid var(--gold); color: var(--ink) !important; }
+.notify-card-body label { font-size: 8px; letter-spacing: .15em; font-weight: 900; color: var(--muted); }
+.notify-card-body input { width: 100%; height: 42px; padding: 0 11px; border: 1px solid var(--line); background: var(--paper); font-size: 13px; color: var(--ink); }
+.notify-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.notify-card-actions button { padding: 11px 14px; border: 0; background: var(--ink); color: white; font-size: 9px; font-weight: 900; letter-spacing: .06em; }
+.notify-card-actions button:disabled { opacity: .4; cursor: not-allowed; }
+.notify-card-status { font-size: 9px; color: var(--muted); }
 
 @media (min-width: 560px) {
   .role-button span { display: block; }

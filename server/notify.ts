@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { barbers, notifications, services, shopSettings } from "@/db/schema";
+import { barbers, notifications, services } from "@/db/schema";
 import { randomId } from "./password";
 import { readWhatsAppConfig, sendTemplate, type TemplateName } from "./whatsapp";
 
@@ -41,16 +41,12 @@ export async function notifyAppointment(appointment: AppointmentLike, kind: "cre
 
   const db = getDb();
 
-  const [settings] = await db.select().from(shopSettings).where(eq(shopSettings.id, "shop")).limit(1);
   const [barber] = await db.select().from(barbers).where(eq(barbers.id, appointment.barberId)).limit(1);
   const [service] = await db.select().from(services).where(eq(services.id, appointment.serviceId)).limit(1);
 
-  // O barbeiro do horário recebe sempre; o dono só se tiver pedido.
-  const recipients = new Set<string>();
-  if (barber?.notifyPhone) recipients.add(barber.notifyPhone);
-  if (settings?.notifyOwnerAll && settings.ownerPhone) recipients.add(settings.ownerPhone);
-
-  if (recipients.size === 0) return;
+  // Quem recebe é o barbeiro do horário, no número que ele cadastrou.
+  const to = barber?.notifyPhone;
+  if (!to) return;
 
   const template: TemplateName = kind === "created" ? "novo_agendamento" : "agendamento_cancelado";
 
@@ -70,18 +66,16 @@ export async function notifyAppointment(appointment: AppointmentLike, kind: "cre
           barber?.name ?? "Equipe",
         ];
 
-  for (const to of recipients) {
-    const result = await sendTemplate(config, to, template, parameters);
+  const result = await sendTemplate(config, to, template, parameters);
 
-    await db.insert(notifications).values({
-      id: randomId("ntf"),
-      appointmentId: appointment.id,
-      kind,
-      toPhone: to,
-      status: result.ok ? "sent" : "failed",
-      error: result.ok ? "" : result.error,
-    });
-  }
+  await db.insert(notifications).values({
+    id: randomId("ntf"),
+    appointmentId: appointment.id,
+    kind,
+    toPhone: to,
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? "" : result.error,
+  });
 }
 
 /**

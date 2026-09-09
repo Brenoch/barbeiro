@@ -11,8 +11,6 @@ export async function PATCH(request: Request) {
   const payload = (await request.json()) as {
     shopName?: string;
     neighborhood?: string;
-    ownerPhone?: string;
-    notifyOwnerAll?: boolean;
     clearDemo?: boolean;
   };
 
@@ -23,8 +21,6 @@ export async function PATCH(request: Request) {
 
   const changes: Record<string, unknown> = {};
   if (payload.shopName?.trim()) changes.shopName = payload.shopName.trim();
-  if (typeof payload.ownerPhone === "string") changes.ownerPhone = payload.ownerPhone.trim().slice(0, 30);
-  if (typeof payload.notifyOwnerAll === "boolean") changes.notifyOwnerAll = payload.notifyOwnerAll;
   if (payload.neighborhood?.trim()) changes.neighborhood = payload.neighborhood.trim();
   if (Object.keys(changes).length === 0) return Response.json({ ok: true });
 
